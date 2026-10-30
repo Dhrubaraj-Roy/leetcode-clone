@@ -22,12 +22,13 @@ const register = async (req, res) => {
     // 3. Hash the password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // 4. Create and save new user
+    // 4. Create and save new user (role is always strictly enforced as "user")
     const newUser = new User({
       firstName,
       lastName,
       emailId,
       password: passwordHash,
+      role: "user",
     });
 
     await newUser.save();
@@ -39,6 +40,7 @@ const register = async (req, res) => {
         firstName: newUser.firstName,
         lastName: newUser.lastName,
         emailId: newUser.emailId,
+        role: newUser.role,
       },
     });
   } catch (err) {
@@ -69,7 +71,7 @@ const login = async (req, res) => {
 
     // 4. Create JWT token
     const token = jwt.sign(
-      { _id: user._id, emailId: user.emailId },
+      { _id: user._id, emailId: user.emailId, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "1h" }
     );
@@ -88,6 +90,7 @@ const login = async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         emailId: user.emailId,
+        role: user.role,
       },
     });
   } catch (err) {
@@ -127,8 +130,53 @@ const logout = async (req, res) => {
   }
 };
 
+// Admin Register Controller (only accessible by an authenticated admin)
+const adminRegister = async (req, res) => {
+  try {
+    const { firstName, lastName, password } = req.body;
+    const emailId = req.body.emailId || req.body.email;
+
+    // 1. Validate request data
+    validateSignUpData({ firstName, lastName, emailId, password });
+
+    // 2. Check if user already exists
+    const existingUser = await User.findOne({ emailId });
+    if (existingUser) {
+      return res.status(400).json({ message: "User with this email already exists" });
+    }
+
+    // 3. Hash the password
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // 4. Create and save new admin user
+    const newAdmin = new User({
+      firstName,
+      lastName,
+      emailId,
+      password: passwordHash,
+      role: "admin",
+    });
+
+    await newAdmin.save();
+
+    res.status(201).json({
+      message: "Admin registered successfully",
+      user: {
+        id: newAdmin._id,
+        firstName: newAdmin.firstName,
+        lastName: newAdmin.lastName,
+        emailId: newAdmin.emailId,
+        role: newAdmin.role,
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};
+
 module.exports = {
   register,
   login,
   logout,
+  adminRegister,
 };
