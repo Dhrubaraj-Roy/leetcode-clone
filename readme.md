@@ -45,6 +45,17 @@ I am documenting my progress with dates and timestamps as I build each part of t
   5. Added a protected `POST /admin/register` endpoint (chained with `userAuth` and `adminAuth`) so existing admins can create new admin accounts.
   6. Built a CLI script `scripts/makeAdmin.js` and added `npm run make-admin <email>` to bootstrap the initial admin directly in the database.
 
+### Milestone 4: Problem Management API (CRUD Coding Problems)
+- Date: October 30, 2026
+- Time: 12:45 - 13:15 IST
+- What I completed:
+  1. Created the `Problem` schema in Mongoose with title, description, difficulty level, tags, visible test cases, hidden test cases, starter code per language, and reference to the problem creator.
+  2. Built admin controllers to create, update, and delete coding problems.
+  3. Built public controllers to fetch all problems with query filters (`difficulty` and `tag`), and view a single problem by ID.
+  4. Implemented data privacy for test cases: `hiddenTestCases` are strictly excluded from public responses (`.select("-hiddenTestCases")`) so users cannot peek at the test suite.
+  5. Built the problem submission route (`POST /problem/solve/:id`) for authenticated users to submit code for evaluation.
+  6. Mounted all problem endpoints under `/problem` in `index.js`.
+
 ---
 
 ## What I Built So Far
@@ -57,18 +68,44 @@ Created a Mongoose schema for users with the following fields:
 - password: String (required, stored as a bcrypt hash)
 - role: String (enum: `["user", "admin"]`, default: `"user"`)
 
-### 2. Input Validation (utils/validator.js)
+### 2. Problem Schema (models/problem.js)
+Created a Mongoose schema for coding problems with the following fields:
+- title: String (required, trimmed)
+- description: String (required, trimmed)
+- difficulty: String (required, enum: `["easy", "medium", "hard"]`)
+- tags: Array of strings (e.g., `["array", "two-pointers"]`)
+- visibleTestCases: Array of public example test cases shown to users:
+  - input: String (required)
+  - output: String (required)
+  - explanation: String (optional)
+- hiddenTestCases: Array of test cases used by the judge to evaluate code (never exposed to normal users):
+  - input: String (required)
+  - output: String (required)
+- startCode: Array of boilerplate starter templates:
+  - language: String (e.g., `"javascript"`, `"python"`, `"cpp"`)
+  - initialCode: String
+- problemCreator: ObjectId (reference to `User`, required)
+
+### 3. Input Validation (utils/validator.js)
 Created helper functions to validate incoming request data before hitting the database:
 - validateSignUpData: Checks that first name is provided, email is valid, and password is strong (contains uppercase, lowercase, number, and special character).
 - validateLoginData: Checks that email format is valid and password is provided.
 
-### 3. Authentication Controllers (controllers/userAuth.js)
+### 4. Authentication Controllers (controllers/userAuth.js)
 - register: Validates input data, checks if the email already exists, hashes the password using bcrypt (10 rounds), strictly assigns `role: "user"`, and saves the new user to MongoDB.
 - login: Finds user by email, verifies password with bcrypt, creates a signed JWT token containing user ID, email, and role (expires in 1 hour), and stores it in an HTTP-only cookie.
 - logout: Extracts the token, calculates how much time it has left before expiration, adds it to the Redis blacklist with that exact TTL, and clears the cookie.
 - adminRegister: An admin-only controller that registers another admin account with `role: "admin"` and hashed password.
 
-### 4. Middlewares (middleware/)
+### 5. Problem Controllers (controllers/problem.js)
+- createProblem (Admin only): Validates required fields (`title`, `description`, `difficulty`), validates the difficulty enum, links the problem to the authenticated admin (`req.user._id`), and saves it to MongoDB.
+- updateProblem (Admin only): Accepts partial updates via `PATCH` or `PUT`, ensures only allowed fields are modified, and re-validates the updated data.
+- deleteProblem (Admin only): Finds and deletes a problem by ID from MongoDB.
+- getAllProblems (Public): Returns a list of all problems. Supports filtering by difficulty (`?difficulty=easy`) and tags (`?tag=array`). Automatically hides `hiddenTestCases` so normal users cannot see secret test cases.
+- getProblemById (Public): Returns problem details by ID. Hides `hiddenTestCases` unless requested by an authenticated admin.
+- solveProblem (Protected - User login required): Receives code and language from the user, validates inputs, and records a submission ready for the judge evaluation engine.
+
+### 6. Middlewares (middleware/)
 - `middleware/userAuth.js`:
   1. Reads the token from either the HTTP-only cookie or the `Authorization: Bearer <token>` header.
   2. Checks Redis to see if the token is blacklisted. If blacklisted, rejects the request immediately.
@@ -80,7 +117,7 @@ Created helper functions to validate incoming request data before hitting the da
   2. Verifies that `req.user.role === "admin"`.
   3. If not an admin, rejects with a `403 Forbidden` response.
 
-### 5. Why and How Redis Token Blacklisting Works
+### 7. Why and How Redis Token Blacklisting Works
 JWT tokens are stateless. When a user logs out, simply deleting the cookie from their browser doesn't invalidate the token itself. If someone had copied that token, they could still make requests until it expired.
 
 To solve this:
@@ -90,7 +127,7 @@ To solve this:
 - When any protected route is accessed, `userAuth` middleware checks Redis first. If the key exists, it returns `401 Unauthorized`.
 - Once the token expires naturally, Redis evicts it automatically, so memory usage stays low without any manual cleanup.
 
-### 6. Bootstrapping Admins (scripts/makeAdmin.js)
+### 8. Bootstrapping Admins (scripts/makeAdmin.js)
 Since creating an admin via the API requires you to already be logged in as an admin (`POST /admin/register`), there is a chicken-and-egg problem: how do you create the very first admin?
 
 To solve this, I made a CLI helper script:
@@ -101,10 +138,13 @@ node scripts/makeAdmin.js user@example.com
 ```
 This connects to MongoDB, finds the user by email, and sets their `role` to `"admin"`. Once you have your first admin, that admin can log in and register other admins through the API.
 
-### 7. Server Startup (index.js & config/)
+### 9. Server Startup (index.js & config/)
 - `config/db.js`: Connects to MongoDB using Mongoose.
 - `config/redis.js`: Creates and exports the Redis client.
 - `index.js`: Connects to both MongoDB and Redis before the Express server starts listening for requests.
+- Routers mounted:
+  - Auth routes: `/` (`authRouter`)
+  - Problem routes: `/problem` (`problemRouter`)
 
 ---
 
@@ -116,14 +156,17 @@ leetcode-clone/
 │   ├── db.js
 │   └── redis.js
 ├── controllers/
+│   ├── problem.js
 │   └── userAuth.js
 ├── middleware/
 │   ├── adminAuth.js
 │   └── userAuth.js
 ├── models/
+│   ├── problem.js
 │   └── user.js
 ├── routes/
-│   └── auth.js
+│   ├── auth.js
+│   └── problem.js
 ├── scripts/
 │   └── makeAdmin.js
 ├── utils/
@@ -181,8 +224,9 @@ REDIS_PASS=your_redis_password
 
 ## API Endpoints
 
-### Public Endpoints
+### 1. Authentication Endpoints
 
+#### Public
 - POST /register
   Registers a new regular user account (role is always strictly `"user"`).
   Body:
@@ -205,8 +249,7 @@ REDIS_PASS=your_redis_password
   }
   ```
 
-### Protected Endpoints (Requires Login)
-
+#### Protected (Requires User Login)
 - GET /profile
   Fetches the logged-in user profile (including `role`).
   Header: `Cookie: token=...` or `Authorization: Bearer <token>`
@@ -215,8 +258,7 @@ REDIS_PASS=your_redis_password
   Logs the user out, blacklists the token in Redis for its remaining lifetime, and clears the auth cookie.
   Header: `Cookie: token=...` or `Authorization: Bearer <token>`
 
-### Admin-Only Endpoints (Requires Admin Login)
-
+#### Admin-Only
 - POST /admin/register
   Allows an authenticated admin to create another admin account.
   Protected by: `userAuth` + `adminAuth` middlewares.
@@ -230,3 +272,67 @@ REDIS_PASS=your_redis_password
     "password": "Password@123"
   }
   ```
+
+---
+
+### 2. Problem Management Endpoints
+
+#### Public (Anyone can view problems)
+- GET /problem/all (or `/problem`)
+  Lists all problems. Hidden test cases are excluded to protect test integrity.
+  Optional Query Filters: `?difficulty=easy`, `?tag=array`
+
+- GET /problem/:id (or `/problem/get/:id`)
+  Retrieves single problem details by ID (hidden test cases are hidden for users).
+
+#### Protected (Requires User Login)
+- POST /problem/solve/:id
+  Submits code solution for a problem.
+  Protected by: `userAuth` middleware.
+  Body:
+  ```json
+  {
+    "language": "javascript",
+    "code": "function twoSum(nums, target) { ... }"
+  }
+  ```
+
+#### Admin-Only (Requires Admin Login)
+All problem creation and modification endpoints require both `userAuth` and `adminAuth`.
+
+- POST /problem/create
+  Creates a new coding problem with test cases and starter templates.
+  Body:
+  ```json
+  {
+    "title": "Two Sum",
+    "description": "Given an array of integers nums and an integer target...",
+    "difficulty": "easy",
+    "tags": ["array", "hash-table"],
+    "visibleTestCases": [
+      {
+        "input": "nums = [2,7,11,15], target = 9",
+        "output": "[0,1]",
+        "explanation": "Because nums[0] + nums[1] == 9, we return [0, 1]."
+      }
+    ],
+    "hiddenTestCases": [
+      {
+        "input": "nums = [3,2,4], target = 6",
+        "output": "[1,2]"
+      }
+    ],
+    "startCode": [
+      {
+        "language": "javascript",
+        "initialCode": "function twoSum(nums, target) {\n  // your code here\n}"
+      }
+    ]
+  }
+  ```
+
+- PATCH /problem/update/:id (or `PUT /problem/update/:id`)
+  Updates existing problem details.
+
+- DELETE /problem/delete/:id
+  Deletes a problem by ID.
