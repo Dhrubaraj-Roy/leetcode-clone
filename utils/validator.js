@@ -11,8 +11,8 @@ const validateSignUpData = (data) => {
     throw new Error("Please enter a valid email address");
   }
 
-  if (!password || password.length < 6) {
-    throw new Error("Password must be at least 6 characters long");
+  if (!password || !validator.isStrongPassword(password)) {
+    throw new Error("Please enter a strong password");
   }
 };
 

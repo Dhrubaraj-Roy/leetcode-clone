@@ -1,6 +1,7 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const User = require("../models/user");
+const redisClient = require("../config/redis");
 const { validateSignUpData, validateLoginData } = require("../utils/validator");
 
 // Register / Signup Controller
@@ -49,7 +50,7 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { password } = req.body;
-    const emailId = req.body.emailId || req.body.email;
+    const emailId = req.body.emailId;
 
     // 1. Validate login input
     validateLoginData({ emailId, password });
@@ -64,20 +65,21 @@ const login = async (req, res) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(400).json({ message: "Invalid credentials" });
-    }
+    } 
 
     // 4. Create JWT token
     const token = jwt.sign(
       { _id: user._id, emailId: user.emailId },
-      process.env.JWT_SECRET || "default_jwt_secret_key",
-      { expiresIn: "1d" }
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
     );
 
-    // 5. Store token in HTTP-only cookie
+    // 5. Store token in HTTP-only cookie (expires in 1 hour)
     res.cookie("token", token, {
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 1 day
+      maxAge: 60 * 60 * 1000, // 1 hour
     });
+    
 
     res.status(200).json({
       message: "Login successful",
@@ -96,6 +98,23 @@ const login = async (req, res) => {
 // Logout Controller
 const logout = async (req, res) => {
   try {
+    const token = req.token || req.cookies?.token;
+
+    if (token) {
+      const decoded = jwt.decode(token);
+      if (decoded && decoded.exp) {
+        const currentTime = Math.floor(Date.now() / 1000);
+        const remainingTime = decoded.exp - currentTime;
+
+        if (remainingTime > 0) {
+          // Store token in Redis blacklist for the remaining TTL
+          await redisClient.set(`token:${token}`, "blacklisted", {
+            EX: remainingTime,
+          });
+        }
+      }
+    }
+
     // Clear token cookie
     res.cookie("token", null, {
       httpOnly: true,
@@ -110,7 +129,6 @@ const logout = async (req, res) => {
 
 module.exports = {
   register,
-  signup: register,
   login,
   logout,
 };

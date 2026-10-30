@@ -22,36 +22,61 @@ I am documenting my progress with dates and timestamps as I build each part of t
   5. Setup the MongoDB connection with environment variable configuration (.env).
   6. Tested the register, login, and logout endpoints successfully.
 
-### Upcoming Milestones
-- Milestone 2: Problem Management API (Create, Read, Update, Delete coding problems)
-- Milestone 3: Code Submission and Execution Engine (Judge system)
-- Milestone 4: Frontend Development (Code editor, problem listings, discussion forum, and user dashboard)
+### Milestone 2: Auth Middleware & Redis Token Blacklisting
+- Date: October 30, 2026
+- Time: 11:30 - 12:15 IST
+- What I completed:
+  1. Created a reusable `userAuth` middleware to protect private routes.
+  2. Integrated Redis to handle JWT token blacklisting when a user logs out.
+  3. Stored blacklisted tokens with a dynamic TTL (Time-To-Live) matching their remaining expiry time, so Redis cleans them up automatically without taking up extra memory.
+  4. Updated the login system so tokens expire in 1 hour (down from 24 hours) for better security.
+  5. Added a protected `GET /profile` endpoint to verify the middleware and fetch logged-in user details.
+  6. Strengthened signup validation using `validator.isStrongPassword`.
+  7. Updated server initialization to connect to both MongoDB and Redis before starting the Express server.
 
 ---
 
-## What I Built (Step 1: Core Authentication)
+## What I Built So Far
 
 ### 1. User Schema (models/user.js)
 Created a Mongoose schema for users with the following fields:
 - firstName: String (required)
 - lastName: String (optional)
-- emailId: String (required, unique, lowercase)
-- password: String (required, stored as a hashed string)
+- emailId: String (required, unique, lowercase, trimmed)
+- password: String (required, stored as a bcrypt hash)
 
-### 2. Validation (utils/validator.js)
-Created helper functions to validate incoming request data:
-- validateSignUpData: Checks that first name is provided, email format is valid, and password is at least 6 characters.
+### 2. Input Validation (utils/validator.js)
+Created helper functions to validate incoming request data before hitting the database:
+- validateSignUpData: Checks that first name is provided, email is valid, and password is strong (contains uppercase, lowercase, number, and special character).
 - validateLoginData: Checks that email format is valid and password is provided.
 
 ### 3. Authentication Controllers (controllers/userAuth.js)
-- register: Validates input data, checks if the email already exists, hashes the password using bcrypt, and saves the new user to MongoDB.
-- login: Finds the user by email, compares passwords with bcrypt, creates a signed JWT token, and saves it in an HTTP-only cookie.
-- logout: Clears the authentication token cookie to log the user out.
+- register: Validates input data, checks if the email already exists, hashes the password using bcrypt (10 rounds), and saves the new user to MongoDB.
+- login: Finds user by email, verifies the password with bcrypt, creates a signed JWT token (expires in 1 hour), and stores it in an HTTP-only cookie.
+- logout: Extracts the token, calculates how much time it has left before expiration, adds it to the Redis blacklist with that exact TTL, and clears the cookie.
 
-### 4. Routes and Server (routes/auth.js & index.js)
-- Endpoints created: POST /register, POST /signup, POST /login, and POST /logout.
-- Connected Express to MongoDB using Mongoose in config/db.js.
-- Used cookie-parser for handling auth cookies and express.json for request payloads.
+### 4. Authentication Middleware (middleware/userAuth.js)
+I created a middleware function to protect private routes:
+1. Reads the token from either the HTTP-only cookie or the `Authorization: Bearer <token>` header.
+2. Checks Redis to see if the token is blacklisted. If blacklisted, rejects the request immediately.
+3. Verifies the JWT token using `JWT_SECRET`.
+4. Finds the user in MongoDB by ID.
+5. Attaches `user` and `token` to the request object (`req.user`, `req.token`) and calls `next()`.
+
+### 5. Why and How Redis Token Blacklisting Works
+JWT tokens are stateless. When a user logs out, simply deleting the cookie from their browser doesn't invalidate the token itself. If someone had copied that token, they could still make requests until it expired.
+
+To solve this:
+- On logout, I decode the token to get its expiration time (`exp`).
+- I calculate the remaining seconds: `remainingTime = exp - currentTime`.
+- If the token is still active, I save it in Redis as `token:<token>` with a value of `"blacklisted"` and set its TTL to `remainingTime`.
+- When any protected route is accessed, `userAuth` middleware checks Redis first. If the key exists, it returns `401 Unauthorized`.
+- Once the token expires naturally, Redis evicts it automatically, so memory usage stays low without any manual cleanup.
+
+### 6. Server Startup (index.js & config/)
+- `config/db.js`: Connects to MongoDB using Mongoose.
+- `config/redis.js`: Creates and exports the Redis client.
+- `index.js`: Connects to both MongoDB and Redis before the Express server starts listening for requests.
 
 ---
 
@@ -60,8 +85,11 @@ Created helper functions to validate incoming request data:
 ```
 leetcode-clone/
 ├── config/
-│   └── db.js
+│   ├── db.js
+│   └── redis.js
 ├── controllers/
+│   └── userAuth.js
+├── middleware/
 │   └── userAuth.js
 ├── models/
 │   └── user.js
@@ -81,12 +109,15 @@ leetcode-clone/
 
 ## Environment Variables
 
-Create a .env file in the root directory with the following variables:
+Create a `.env` file in the root directory with the following variables:
 
 ```
 PORT=3000
-MONGO_URI=mongodb://127.0.0.1:27017/leetcode-clone
+MONGO_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/leetcode-clone
 JWT_SECRET=your_jwt_secret_key
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_PASS=your_redis_password
 ```
 
 ---
@@ -94,33 +125,56 @@ JWT_SECRET=your_jwt_secret_key
 ## How to Run
 
 1. Install dependencies:
+   ```bash
    npm install
+   ```
 
-2. Start the development server:
+2. Make sure MongoDB and Redis are running on your system or you have cloud connection URIs set up in `.env`.
+
+3. Start the development server:
+   ```bash
    npm run dev
+   ```
 
-3. Or start the production server:
+4. Or start the production server:
+   ```bash
    npm start
+   ```
 
 ---
 
 ## API Endpoints
 
-- POST /register or POST /signup
+### Public Endpoints
+
+- POST /register
+  Registers a new user account.
   Body:
+  ```json
   {
     "firstName": "John",
     "lastName": "Doe",
     "emailId": "john@example.com",
-    "password": "password123"
+    "password": "Password@123"
   }
+  ```
 
 - POST /login
+  Authenticates a user and sets an HTTP-only cookie with the JWT (valid for 1 hour).
   Body:
+  ```json
   {
     "emailId": "john@example.com",
-    "password": "password123"
+    "password": "Password@123"
   }
+  ```
+
+### Protected Endpoints (Requires Login)
+
+- GET /profile
+  Fetches the logged-in user profile.
+  Header: `Cookie: token=...` or `Authorization: Bearer <token>`
 
 - POST /logout
-  Clears the authentication cookie.
+  Logs the user out, blacklists the token in Redis for its remaining lifetime, and clears the auth cookie.
+  Header: `Cookie: token=...` or `Authorization: Bearer <token>`

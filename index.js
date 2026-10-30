@@ -3,6 +3,7 @@ const cookieParser = require("cookie-parser");
 require("dotenv").config();
 
 const connectDB = require("./config/db");
+const redisClient = require("./config/redis");
 const authRouter = require("./routes/auth");
 
 const app = express();
@@ -21,13 +22,20 @@ app.get("/health", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-connectDB()
-  .then(() => {
+const startServer = async () => {
+  try {
+    await connectDB();
     console.log("Database connection established successfully.");
+
+    await redisClient.connect();
+    console.log("Redis connection established successfully.");
+
     app.listen(PORT, () => {
       console.log(`Server is successfully listening on port ${PORT}...`);
     });
-  })
-  .catch((err) => {
-    console.error("Database connection failed:", err.message);
-  });
+  } catch (err) {
+    console.error("Server startup error:", err.message);
+  }
+};
+
+startServer();
