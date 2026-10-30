@@ -5,6 +5,7 @@ require("dotenv").config();
 const connectDB = require("./config/db");
 const redisClient = require("./config/redis");
 const authRouter = require("./routes/auth");
+const problemRouter = require("./routes/problem");
 
 const app = express();
 
@@ -14,6 +15,7 @@ app.use(cookieParser());
 
 // Routes
 app.use("/", authRouter);
+app.use("/problem", problemRouter);
 
 // Health check route
 app.get("/health", (req, res) => {
