@@ -1,4 +1,5 @@
 const Problem = require("../models/problem.model");
+const { isValidObjectId } = require("../utils/validator");
 const {
   getLanguageById,
   submitBatch,
@@ -158,6 +159,10 @@ const updateProblem = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ message: "Invalid problem ID format." });
+    }
+
     const allowedUpdates = [
       "title",
       "description",
@@ -186,6 +191,19 @@ const updateProblem = async (req, res) => {
       }
     }
 
+    if (updates.referenceSolution) {
+      const refSolutions = Array.isArray(updates.referenceSolution)
+        ? updates.referenceSolution
+        : [updates.referenceSolution];
+      for (const refSol of refSolutions) {
+        if (!getLanguageById(refSol.language)) {
+          return res.status(400).json({
+            message: `Unsupported language: "${refSol.language}". Only C++ and Python are supported.`,
+          });
+        }
+      }
+    }
+
     const updatedProblem = await Problem.findByIdAndUpdate(id, updates, {
       new: true,
       runValidators: true,
@@ -209,6 +227,10 @@ const deleteProblem = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ message: "Invalid problem ID format." });
+    }
+
     const deletedProblem = await Problem.findByIdAndDelete(id);
     if (!deletedProblem) {
       return res.status(404).json({ message: "Problem not found" });
@@ -227,7 +249,7 @@ const deleteProblem = async (req, res) => {
 // Hidden test cases and reference solutions are excluded for regular users
 const getAllProblems = async (req, res) => {
   try {
-    const { difficulty, tag } = req.query;
+    const { difficulty, tag, page, limit } = req.query;
 
     const filter = {};
     if (difficulty) {
@@ -237,12 +259,26 @@ const getAllProblems = async (req, res) => {
       filter.tags = tag.toLowerCase().trim();
     }
 
+    // Pagination parameters (default page: 1, default limit: 10)
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, parseInt(limit, 10) || 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Total problems matching filter
+    const totalProblems = await Problem.countDocuments(filter);
+
     // Exclude hidden test cases and reference solution from public listing
     const problems = await Problem.find(filter)
       .select("-hiddenTestCases -referenceSolution")
-      .populate("problemCreator", "firstName lastName emailId");
+      .populate("problemCreator", "firstName lastName emailId")
+      .skip(skip)
+      .limit(limitNum);
 
     res.status(200).json({
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(totalProblems / limitNum),
+      totalProblems,
       count: problems.length,
       problems,
     });
@@ -256,6 +292,10 @@ const getAllProblems = async (req, res) => {
 const getProblemById = async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ message: "Invalid problem ID format." });
+    }
 
     // Do not leak hidden test cases or reference solution to regular users
     const query = Problem.findById(id).populate(
@@ -284,6 +324,10 @@ const solveProblem = async (req, res) => {
   try {
     const { id } = req.params;
     const { language, code } = req.body;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ message: "Invalid problem ID format." });
+    }
 
     if (!language || !code) {
       return res.status(400).json({

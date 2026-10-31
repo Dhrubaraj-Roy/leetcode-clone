@@ -1,4 +1,9 @@
 const validator = require("validator");
+const mongoose = require("mongoose");
+
+const isValidObjectId = (id) => {
+  return mongoose.Types.ObjectId.isValid(id);
+};
 
 const validateSignUpData = (data) => {
   const { firstName, emailId, password } = data;
@@ -29,6 +34,7 @@ const validateLoginData = (data) => {
 };
 
 module.exports = {
+  isValidObjectId,
   validateSignUpData,
   validateLoginData,
 };

@@ -103,7 +103,22 @@ Created a Mongoose schema for coding problems with the following fields:
   - completeCode: String
 - problemCreator: ObjectId (reference to `User`, required)
 
-### 3. Problem Service & OnlineCompiler Judge0 API (utils/problem.service.js)
+### 3. Submission Schema (models/submission.model.js)
+Created a Mongoose schema for code evaluation submissions with the following fields:
+- userId: ObjectId (reference to `User`, required, indexed)
+- problemId: ObjectId (reference to `Problem`, required, indexed)
+- code: String (required)
+- language: String (enum: `["cpp", "python"]`, required)
+- status: String (enum: `["Pending", "Accepted", "Wrong Answer", "Time Limit Exceeded", "Memory Limit Exceeded", "Compilation Error", "Runtime Error", "Internal Error"]`, default: `"Pending"`)
+- time: Number (execution time in seconds, default: 0)
+- memory: Number (memory consumed in KB, default: 0)
+- testCasesPassed: Number (default: 0)
+- totalTestCases: Number (default: 0)
+- errorMessage: String (details of runtime or execution error, optional)
+- compileOutput: String (compiler error logs or warnings, optional)
+- Timestamps and compound indexes for fast query lookup (`userId + problemId`, `createdAt`).
+
+### 4. Problem Service & OnlineCompiler Judge0 API (utils/problem.service.js)
 Created utility functions to interface with the code execution engine via Axios:
 - getLanguageById: Maps language names to compiler IDs (C++: 105, Python: 113).
 - submitBatch: Posts a batch of submissions to OnlineCompiler (`POST https://api.onlinecompiler.io/api/judge0/submissions/batch`).
@@ -111,26 +126,27 @@ Created utility functions to interface with the code execution engine via Axios:
 - wait: Promisified timer used for 1-second polling intervals while waiting for compiler execution.
 - getHeaders: Authenticates requests using `process.env.ONLINECOMPILER_API_KEY`.
 
-### 4. Input Validation (utils/validator.js)
+### 5. Input Validation (utils/validator.js)
 Created helper functions to validate incoming request data before hitting the database:
+- isValidObjectId: Validates whether a given ID string is a valid MongoDB ObjectId format.
 - validateSignUpData: Checks that first name is provided, email is valid, and password is strong (contains uppercase, lowercase, number, and special character).
 - validateLoginData: Checks that email format is valid and password is provided.
 
-### 5. Authentication Controllers (controllers/userAuth.js)
+### 6. Authentication Controllers (controllers/userAuth.js)
 - register: Validates input data, checks if the email already exists, hashes the password using bcrypt (10 rounds), strictly assigns `role: "user"`, and saves the new user to MongoDB.
 - login: Finds user by email, verifies password with bcrypt, creates a signed JWT token containing user ID, email, and role (expires in 1 hour), and stores it in an HTTP-only cookie.
 - logout: Extracts the token, calculates how much time it has left before expiration, adds it to the Redis blacklist with that exact TTL, and clears the cookie.
 - adminRegister: An admin-only controller that registers another admin account with `role: "admin"` and hashed password.
 
-### 6. Problem Controllers (controllers/problem.controller.js)
+### 7. Problem Controllers (controllers/problem.controller.js)
 - createProblem (Admin only): Validates required fields, compiles reference solutions and test cases into a batch submission for OnlineCompiler, polls every 1 second until compilation finishes, verifies Status 3 (`Accepted`) across all test cases, links the problem to the admin, and saves to MongoDB.
-- updateProblem (Admin only): Accepts partial updates via `PATCH` or `PUT`, ensures only allowed fields (including `referenceSolution`) are modified, and re-validates data.
-- deleteProblem (Admin only): Finds and deletes a problem by ID from MongoDB.
-- getAllProblems (Public): Returns a list of all problems. Excludes `hiddenTestCases` and `referenceSolution` from public responses.
-- getProblemById (Public): Returns problem details by ID. Hides `hiddenTestCases` and `referenceSolution` unless requested by an admin.
-- solveProblem (Protected - User login required): Receives code and language from the user for execution.
+- updateProblem (Admin only): Validates MongoDB ObjectId format, accepts partial updates via `PATCH` or `PUT`, ensures only allowed fields (including `referenceSolution`) are modified, and re-validates data.
+- deleteProblem (Admin only): Validates MongoDB ObjectId format, finds and deletes a problem by ID from MongoDB.
+- getAllProblems (Public): Returns a paginated list of all problems (default: 10 per page). Excludes `hiddenTestCases` and `referenceSolution` from public responses.
+- getProblemById (Public): Validates MongoDB ObjectId format and returns problem details by ID. Hides `hiddenTestCases` and `referenceSolution` unless requested by an admin.
+- solveProblem (Protected - User login required): Validates MongoDB ObjectId format, receives code and language from the user for execution.
 
-### 6. Middlewares (middleware/)
+### 8. Middlewares (middleware/)
 - `middleware/userAuth.js`:
   1. Reads the token from either the HTTP-only cookie or the `Authorization: Bearer <token>` header.
   2. Checks Redis to see if the token is blacklisted. If blacklisted, rejects the request immediately.
@@ -142,7 +158,7 @@ Created helper functions to validate incoming request data before hitting the da
   2. Verifies that `req.user.role === "admin"`.
   3. If not an admin, rejects with a `403 Forbidden` response.
 
-### 7. Why and How Redis Token Blacklisting Works
+### 9. Why and How Redis Token Blacklisting Works
 JWT tokens are stateless. When a user logs out, simply deleting the cookie from their browser doesn't invalidate the token itself. If someone had copied that token, they could still make requests until it expired.
 
 To solve this:
@@ -152,7 +168,7 @@ To solve this:
 - When any protected route is accessed, `userAuth` middleware checks Redis first. If the key exists, it returns `401 Unauthorized`.
 - Once the token expires naturally, Redis evicts it automatically, so memory usage stays low without any manual cleanup.
 
-### 8. Bootstrapping Admins (scripts/makeAdmin.js)
+### 10. Bootstrapping Admins (scripts/makeAdmin.js)
 Since creating an admin via the API requires you to already be logged in as an admin (`POST /admin/register`), there is a chicken-and-egg problem: how do you create the very first admin?
 
 To solve this, I made a CLI helper script:
@@ -163,7 +179,7 @@ node scripts/makeAdmin.js user@example.com
 ```
 This connects to MongoDB, finds the user by email, and sets their `role` to `"admin"`. Once you have your first admin, that admin can log in and register other admins through the API.
 
-### 9. Server Startup (index.js & config/)
+### 11. Server Startup (index.js & config/)
 - `config/db.js`: Connects to MongoDB using Mongoose.
 - `config/redis.js`: Creates and exports the Redis client.
 - `index.js`: Connects to both MongoDB and Redis before the Express server starts listening for requests.
@@ -188,6 +204,7 @@ leetcode-clone/
 │   └── userAuth.js
 ├── models/
 │   ├── problem.model.js
+│   ├── submission.model.js
 │   └── user.js
 ├── routes/
 │   ├── auth.js
@@ -281,8 +298,8 @@ JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
 
 #### Public (Anyone can view problems)
 - GET /problem/all (or `/problem`)
-  Lists all problems. Hidden test cases are excluded to protect test integrity.
-  Optional Query Filters: `?difficulty=easy`, `?tag=array`
+  Lists all problems with pagination. Hidden test cases and reference solutions are excluded.
+  Optional Query Filters: `?page=1&limit=10`, `?difficulty=easy`, `?tag=array`
 
 - GET /problem/:id (or `/problem/get/:id`)
   Retrieves single problem details by ID (hidden test cases are hidden for users).
