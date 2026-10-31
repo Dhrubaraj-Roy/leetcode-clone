@@ -1,4 +1,5 @@
-const Problem = require("../models/problem");
+const Problem = require("../models/problem.model");
+const { getLanguageById, submitBatch } = require("../utils/problem.service");
 
 // 1. Create a new problem (Admin only)
 const createProblem = async (req, res) => {
@@ -11,6 +12,7 @@ const createProblem = async (req, res) => {
       visibleTestCases,
       hiddenTestCases,
       startCode,
+      referenceSolution,
     } = req.body;
 
     // Validate required fields
@@ -27,6 +29,51 @@ const createProblem = async (req, res) => {
       });
     }
 
+    const refSolutions = Array.isArray(referenceSolution)
+      ? referenceSolution
+      : referenceSolution
+      ? [referenceSolution]
+      : [];
+
+    // Combine test cases for Judge0 submission array
+    const allTestCases = [
+      ...(visibleTestCases || []),
+      ...(hiddenTestCases || []),
+    ];
+
+    // Build the submissions array:
+    // - source_code: complete code
+    // - language_id: language's ID
+    // - stdin: input
+    // - expected_output: output
+    const submissions = [];
+
+    for (const refSol of refSolutions) {
+      const languageId = getLanguageById(refSol.language);
+
+      for (const tc of allTestCases) {
+        submissions.push({
+          source_code: refSol.completeCode,
+          language_id: languageId,
+          stdin: tc.input,
+          expected_output: tc.output,
+        });
+      }
+    }
+
+    // Call submitBatch using Axios
+    let submitResult = null;
+    if (submissions.length > 0) {
+      try {
+        submitResult = await submitBatch(submissions);
+      } catch (judgeErr) {
+        console.warn(
+          "Judge0 batch submission warning (API key or service pending):",
+          judgeErr.message
+        );
+      }
+    }
+
     const problem = new Problem({
       title,
       description,
@@ -35,6 +82,7 @@ const createProblem = async (req, res) => {
       visibleTestCases: visibleTestCases || [],
       hiddenTestCases: hiddenTestCases || [],
       startCode: startCode || [],
+      referenceSolution: refSolutions,
       problemCreator: req.user._id,
     });
 
@@ -43,6 +91,8 @@ const createProblem = async (req, res) => {
     res.status(201).json({
       message: "Problem created successfully",
       problem,
+      submissions,
+      submitResult,
     });
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -62,6 +112,7 @@ const updateProblem = async (req, res) => {
       "visibleTestCases",
       "hiddenTestCases",
       "startCode",
+      "referenceSolution",
     ];
 
     const updates = {};
@@ -119,7 +170,7 @@ const deleteProblem = async (req, res) => {
 };
 
 // 4. Get all problems (Public / Normal User)
-// Hidden test cases are excluded for users
+// Hidden test cases and reference solutions are excluded for regular users
 const getAllProblems = async (req, res) => {
   try {
     const { difficulty, tag } = req.query;
@@ -132,9 +183,9 @@ const getAllProblems = async (req, res) => {
       filter.tags = tag.toLowerCase().trim();
     }
 
-    // Exclude hidden test cases from the public listing
+    // Exclude hidden test cases and reference solution from public listing
     const problems = await Problem.find(filter)
-      .select("-hiddenTestCases")
+      .select("-hiddenTestCases -referenceSolution")
       .populate("problemCreator", "firstName lastName emailId");
 
     res.status(200).json({
@@ -147,20 +198,20 @@ const getAllProblems = async (req, res) => {
 };
 
 // 5. Get one problem by ID (Public / Normal User)
-// Hidden test cases are excluded unless accessed by an admin
+// Hidden test cases and reference solutions are excluded unless accessed by an admin
 const getProblemById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Do not leak hidden test cases to regular users
+    // Do not leak hidden test cases or reference solution to regular users
     const query = Problem.findById(id).populate(
       "problemCreator",
       "firstName lastName emailId"
     );
 
-    // If an admin is requesting (req.user available through optional auth or query), we can include hidden cases
+    // If an admin is requesting, include hidden cases and reference solution
     if (!req.user || req.user.role !== "admin") {
-      query.select("-hiddenTestCases");
+      query.select("-hiddenTestCases -referenceSolution");
     }
 
     const problem = await query;

@@ -8,7 +8,7 @@ const {
   getAllProblems,
   getProblemById,
   solveProblem,
-} = require("../controllers/problem");
+} = require("../controllers/problem.controller");
 
 const userAuth = require("../middleware/userAuth");
 const adminAuth = require("../middleware/adminAuth");

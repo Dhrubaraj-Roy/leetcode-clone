@@ -56,6 +56,17 @@ I am documenting my progress with dates and timestamps as I build each part of t
   5. Built the problem submission route (`POST /problem/solve/:id`) for authenticated users to submit code for evaluation.
   6. Mounted all problem endpoints under `/problem` in `index.js`.
 
+### Milestone 5: OnlineCompiler (Judge0-Compatible API) Integration
+- Date: October 31, 2026
+- Time: 10:00 - 10:15 IST
+- What I completed:
+  1. Added `referenceSolution` to the `Problem` schema with `language` and `completeCode`.
+  2. Integrated OnlineCompiler.io as a Judge0-compatible execution provider.
+  3. Built `utils/problem.service.js` with `getLanguageById`, `submitBatch`, `getBatchResults`, and `submitSingle` using Axios.
+  4. Configured `ONLINECOMPILER_API_KEY` and `JUDGE0_URL` in `.env`.
+  5. Updated `createProblem` to dynamically build the batch submission array (`source_code`, `language_id`, `stdin`, `expected_output`) using the reference solution and test cases.
+  6. Excluded `referenceSolution` from public problem views to protect solution code from regular users.
+
 ---
 
 ## What I Built So Far
@@ -68,7 +79,7 @@ Created a Mongoose schema for users with the following fields:
 - password: String (required, stored as a bcrypt hash)
 - role: String (enum: `["user", "admin"]`, default: `"user"`)
 
-### 2. Problem Schema (models/problem.js)
+### 2. Problem Schema (models/problem.model.js)
 Created a Mongoose schema for coding problems with the following fields:
 - title: String (required, trimmed)
 - description: String (required, trimmed)
@@ -84,26 +95,37 @@ Created a Mongoose schema for coding problems with the following fields:
 - startCode: Array of boilerplate starter templates:
   - language: String (e.g., `"javascript"`, `"python"`, `"cpp"`)
   - initialCode: String
+- referenceSolution: Array of complete reference solutions per language:
+  - language: String (e.g., `"cpp"`, `"java"`, `"python"`)
+  - completeCode: String
 - problemCreator: ObjectId (reference to `User`, required)
 
-### 3. Input Validation (utils/validator.js)
+### 3. Problem Service & OnlineCompiler Judge0 API (utils/problem.service.js)
+Created utility functions to interface with the code execution engine via Axios:
+- getLanguageById: Maps language names to compiler IDs (C++: 105, Java: 91, Python: 113, JavaScript: 102).
+- submitBatch: Posts a batch of submissions to OnlineCompiler (`POST https://api.onlinecompiler.io/api/judge0/submissions/batch`).
+- getBatchResults: Retrieves execution results by tokens (`GET /submissions/batch?tokens=...`).
+- submitSingle: Submits a single code solution (`POST /submissions?wait=true`).
+- getHeaders: Authenticates requests using `process.env.ONLINECOMPILER_API_KEY`.
+
+### 4. Input Validation (utils/validator.js)
 Created helper functions to validate incoming request data before hitting the database:
 - validateSignUpData: Checks that first name is provided, email is valid, and password is strong (contains uppercase, lowercase, number, and special character).
 - validateLoginData: Checks that email format is valid and password is provided.
 
-### 4. Authentication Controllers (controllers/userAuth.js)
+### 5. Authentication Controllers (controllers/userAuth.js)
 - register: Validates input data, checks if the email already exists, hashes the password using bcrypt (10 rounds), strictly assigns `role: "user"`, and saves the new user to MongoDB.
 - login: Finds user by email, verifies password with bcrypt, creates a signed JWT token containing user ID, email, and role (expires in 1 hour), and stores it in an HTTP-only cookie.
 - logout: Extracts the token, calculates how much time it has left before expiration, adds it to the Redis blacklist with that exact TTL, and clears the cookie.
 - adminRegister: An admin-only controller that registers another admin account with `role: "admin"` and hashed password.
 
-### 5. Problem Controllers (controllers/problem.js)
-- createProblem (Admin only): Validates required fields (`title`, `description`, `difficulty`), validates the difficulty enum, links the problem to the authenticated admin (`req.user._id`), and saves it to MongoDB.
-- updateProblem (Admin only): Accepts partial updates via `PATCH` or `PUT`, ensures only allowed fields are modified, and re-validates the updated data.
+### 6. Problem Controllers (controllers/problem.controller.js)
+- createProblem (Admin only): Validates required fields, compiles reference solutions and test cases into a batch submission for OnlineCompiler, links the problem to the admin, and saves to MongoDB.
+- updateProblem (Admin only): Accepts partial updates via `PATCH` or `PUT`, ensures only allowed fields (including `referenceSolution`) are modified, and re-validates data.
 - deleteProblem (Admin only): Finds and deletes a problem by ID from MongoDB.
-- getAllProblems (Public): Returns a list of all problems. Supports filtering by difficulty (`?difficulty=easy`) and tags (`?tag=array`). Automatically hides `hiddenTestCases` so normal users cannot see secret test cases.
-- getProblemById (Public): Returns problem details by ID. Hides `hiddenTestCases` unless requested by an authenticated admin.
-- solveProblem (Protected - User login required): Receives code and language from the user, validates inputs, and records a submission ready for the judge evaluation engine.
+- getAllProblems (Public): Returns a list of all problems. Excludes `hiddenTestCases` and `referenceSolution` from public responses.
+- getProblemById (Public): Returns problem details by ID. Hides `hiddenTestCases` and `referenceSolution` unless requested by an admin.
+- solveProblem (Protected - User login required): Receives code and language from the user for execution.
 
 ### 6. Middlewares (middleware/)
 - `middleware/userAuth.js`:
@@ -156,13 +178,13 @@ leetcode-clone/
 │   ├── db.js
 │   └── redis.js
 ├── controllers/
-│   ├── problem.js
+│   ├── problem.controller.js
 │   └── userAuth.js
 ├── middleware/
 │   ├── adminAuth.js
 │   └── userAuth.js
 ├── models/
-│   ├── problem.js
+│   ├── problem.model.js
 │   └── user.js
 ├── routes/
 │   ├── auth.js
@@ -170,6 +192,7 @@ leetcode-clone/
 ├── scripts/
 │   └── makeAdmin.js
 ├── utils/
+│   ├── problem.service.js
 │   └── validator.js
 ├── .env
 ├── .env.example
@@ -192,33 +215,9 @@ JWT_SECRET=your_jwt_secret_key
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 REDIS_PASS=your_redis_password
+ONLINECOMPILER_API_KEY=your_onlinecompiler_api_key
+JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
 ```
-
----
-
-## How to Run
-
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-2. Make sure MongoDB and Redis are running on your system or you have cloud connection URIs set up in `.env`.
-
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-
-4. Or start the production server:
-   ```bash
-   npm start
-   ```
-
-5. Promote an existing user to admin via CLI script:
-   ```bash
-   npm run make-admin user@example.com
-   ```
 
 ---
 
