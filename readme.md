@@ -56,16 +56,19 @@ I am documenting my progress with dates and timestamps as I build each part of t
   5. Built the problem submission route (`POST /problem/solve/:id`) for authenticated users to submit code for evaluation.
   6. Mounted all problem endpoints under `/problem` in `index.js`.
 
-### Milestone 5: OnlineCompiler (Judge0-Compatible API) Integration
+### Milestone 5: OnlineCompiler (Judge0-Compatible API) Integration & Problem Verification
 - Date: October 31, 2026
-- Time: 10:00 - 10:15 IST
+- Time: 10:00 - 13:00 IST
 - What I completed:
   1. Added `referenceSolution` to the `Problem` schema with `language` and `completeCode`.
-  2. Integrated OnlineCompiler.io as a Judge0-compatible execution provider.
-  3. Built `utils/problem.service.js` with `getLanguageById`, `submitBatch`, `getBatchResults`, and `submitSingle` using Axios.
-  4. Configured `ONLINECOMPILER_API_KEY` and `JUDGE0_URL` in `.env`.
-  5. Updated `createProblem` to dynamically build the batch submission array (`source_code`, `language_id`, `stdin`, `expected_output`) using the reference solution and test cases.
-  6. Excluded `referenceSolution` from public problem views to protect solution code from regular users.
+  2. Integrated OnlineCompiler.io as a Judge0-compatible execution provider via Axios (`POST /submissions/batch` and `GET /submissions/batch?tokens=...`).
+  3. Built `utils/problem.service.js` with `getLanguageById`, `submitBatch`, `getBatchResults`, and `wait`.
+  4. Restricted supported languages strictly to **C++** (ID: 105) and **Python** (ID: 113) for performance and consistency.
+  5. Configured `ONLINECOMPILER_API_KEY` and `JUDGE0_URL` in `.env`.
+  6. Updated `createProblem` to dynamically construct batch submissions of reference solutions against all visible and hidden test cases.
+  7. Implemented an asynchronous polling mechanism (1-second intervals) that waits until submissions finish processing (Status 1: In Queue, Status 2: Processing).
+  8. Enforced verification: every reference solution test run must return Status 3 (`Accepted`). If any test case fails or produces an error, problem creation is rejected with detailed error feedback.
+  9. Excluded `referenceSolution` and `hiddenTestCases` from public problem views to safeguard test suite integrity.
 
 ---
 
@@ -93,19 +96,19 @@ Created a Mongoose schema for coding problems with the following fields:
   - input: String (required)
   - output: String (required)
 - startCode: Array of boilerplate starter templates:
-  - language: String (e.g., `"javascript"`, `"python"`, `"cpp"`)
+  - language: String (e.g., `"python"`, `"cpp"`)
   - initialCode: String
 - referenceSolution: Array of complete reference solutions per language:
-  - language: String (e.g., `"cpp"`, `"java"`, `"python"`)
+  - language: String (e.g., `"python"`, `"cpp"`)
   - completeCode: String
 - problemCreator: ObjectId (reference to `User`, required)
 
 ### 3. Problem Service & OnlineCompiler Judge0 API (utils/problem.service.js)
 Created utility functions to interface with the code execution engine via Axios:
-- getLanguageById: Maps language names to compiler IDs (C++: 105, Java: 91, Python: 113, JavaScript: 102).
+- getLanguageById: Maps language names to compiler IDs (C++: 105, Python: 113).
 - submitBatch: Posts a batch of submissions to OnlineCompiler (`POST https://api.onlinecompiler.io/api/judge0/submissions/batch`).
 - getBatchResults: Retrieves execution results by tokens (`GET /submissions/batch?tokens=...`).
-- submitSingle: Submits a single code solution (`POST /submissions?wait=true`).
+- wait: Promisified timer used for 1-second polling intervals while waiting for compiler execution.
 - getHeaders: Authenticates requests using `process.env.ONLINECOMPILER_API_KEY`.
 
 ### 4. Input Validation (utils/validator.js)
@@ -120,7 +123,7 @@ Created helper functions to validate incoming request data before hitting the da
 - adminRegister: An admin-only controller that registers another admin account with `role: "admin"` and hashed password.
 
 ### 6. Problem Controllers (controllers/problem.controller.js)
-- createProblem (Admin only): Validates required fields, compiles reference solutions and test cases into a batch submission for OnlineCompiler, links the problem to the admin, and saves to MongoDB.
+- createProblem (Admin only): Validates required fields, compiles reference solutions and test cases into a batch submission for OnlineCompiler, polls every 1 second until compilation finishes, verifies Status 3 (`Accepted`) across all test cases, links the problem to the admin, and saves to MongoDB.
 - updateProblem (Admin only): Accepts partial updates via `PATCH` or `PUT`, ensures only allowed fields (including `referenceSolution`) are modified, and re-validates data.
 - deleteProblem (Admin only): Finds and deletes a problem by ID from MongoDB.
 - getAllProblems (Public): Returns a list of all problems. Excludes `hiddenTestCases` and `referenceSolution` from public responses.
@@ -291,8 +294,8 @@ JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
   Body:
   ```json
   {
-    "language": "javascript",
-    "code": "function twoSum(nums, target) { ... }"
+    "language": "python",
+    "code": "import sys\n# solution code here\n"
   }
   ```
 
@@ -300,7 +303,7 @@ JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
 All problem creation and modification endpoints require both `userAuth` and `adminAuth`.
 
 - POST /problem/create
-  Creates a new coding problem with test cases and starter templates.
+  Creates a new coding problem with test cases, starter templates, and reference solutions (must pass all test cases on OnlineCompiler before saving).
   Body:
   ```json
   {
@@ -310,21 +313,35 @@ All problem creation and modification endpoints require both `userAuth` and `adm
     "tags": ["array", "hash-table"],
     "visibleTestCases": [
       {
-        "input": "nums = [2,7,11,15], target = 9",
-        "output": "[0,1]",
-        "explanation": "Because nums[0] + nums[1] == 9, we return [0, 1]."
+        "input": "4 9\n2 7 11 15",
+        "output": "0 1\n",
+        "explanation": "nums[0] + nums[1] == 2 + 7 == 9, so the indices are 0 1."
       }
     ],
     "hiddenTestCases": [
       {
-        "input": "nums = [3,2,4], target = 6",
-        "output": "[1,2]"
+        "input": "3 6\n3 2 4",
+        "output": "1 2\n"
       }
     ],
     "startCode": [
       {
-        "language": "javascript",
-        "initialCode": "function twoSum(nums, target) {\n  // your code here\n}"
+        "language": "python",
+        "initialCode": "import sys\n# starter code\n"
+      },
+      {
+        "language": "cpp",
+        "initialCode": "#include <iostream>\nusing namespace std;\n// starter code\n"
+      }
+    ],
+    "referenceSolution": [
+      {
+        "language": "python",
+        "completeCode": "import sys\n# complete working code\n"
+      },
+      {
+        "language": "cpp",
+        "completeCode": "#include <iostream>\nusing namespace std;\n// complete working code\n"
       }
     ]
   }

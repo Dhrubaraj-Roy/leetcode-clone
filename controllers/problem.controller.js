@@ -1,5 +1,10 @@
 const Problem = require("../models/problem.model");
-const { getLanguageById, submitBatch } = require("../utils/problem.service");
+const {
+  getLanguageById,
+  submitBatch,
+  getBatchResults,
+  wait,
+} = require("../utils/problem.service");
 
 // 1. Create a new problem (Admin only)
 const createProblem = async (req, res) => {
@@ -50,6 +55,11 @@ const createProblem = async (req, res) => {
 
     for (const refSol of refSolutions) {
       const languageId = getLanguageById(refSol.language);
+      if (!languageId) {
+        return res.status(400).json({
+          message: `Unsupported language: "${refSol.language}". Only C++ and Python are supported.`,
+        });
+      }
 
       for (const tc of allTestCases) {
         submissions.push({
@@ -61,19 +71,60 @@ const createProblem = async (req, res) => {
       }
     }
 
-    // Call submitBatch using Axios
-    let submitResult = null;
-    if (submissions.length > 0) {
-      try {
-        submitResult = await submitBatch(submissions);
-      } catch (judgeErr) {
-        console.warn(
-          "Judge0 batch submission warning (API key or service pending):",
-          judgeErr.message
-        );
+    if (submissions.length === 0) {
+      return res.status(400).json({
+        message: "At least one reference solution and test case are required.",
+      });
+    }
+
+    const submitResult = await submitBatch(submissions);
+
+    // Extract tokens returned by OnlineCompiler / Judge0
+    const tokens = submitResult.map((item) => item.token);
+
+    // Fetch batch results
+    let testResult = await getBatchResults(tokens);
+
+    // Status ID 1: In Queue, Status ID 2: Processing
+    // Wait and poll every 1 second until compilation and execution finish
+    let attempts = 0;
+    const maxAttempts = 15; // Max 15 seconds
+
+    while (
+      testResult?.submissions?.some(
+        (s) => s.status.id === 1 || s.status.id === 2
+      ) &&
+      attempts < maxAttempts
+    ) {
+      attempts++;
+      await wait(1000); // Wait 1 second
+      testResult = await getBatchResults(tokens);
+    }
+
+    // Verify status IDs: every test case must have status.id === 3 (Accepted)
+    for (let i = 0; i < testResult.submissions.length; i++) {
+      const sub = testResult.submissions[i];
+      const statusId = sub.status.id;
+      const statusDesc = sub.status.description;
+
+      // Status 3 means Accepted
+      if (statusId !== 3) {
+        const failureReason = statusDesc || "Test case failed";
+        const errorDetail =
+          sub.compile_output || sub.stderr || sub.message || null;
+
+        return res.status(400).json({
+          message: `Reference solution verification failed: ${failureReason}`,
+          statusId,
+          statusDescription: statusDesc,
+          error: errorDetail,
+          failedTestCaseIndex: i % allTestCases.length,
+          submissionResult: sub,
+        });
       }
     }
 
+    // All test cases passed with status 3 (Accepted) -> Save problem to database
     const problem = new Problem({
       title,
       description,
@@ -89,13 +140,16 @@ const createProblem = async (req, res) => {
     await problem.save();
 
     res.status(201).json({
-      message: "Problem created successfully",
+      message: "Problem verified and created successfully",
       problem,
-      submissions,
-      submitResult,
+      verification: {
+        totalTestCases: submissions.length,
+        status: "Accepted",
+        allPassed: true,
+      },
     });
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    res.status(400).json({ error: err.response?.data || err.message });
   }
 };
 
