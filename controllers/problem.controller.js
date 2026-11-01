@@ -1,3 +1,4 @@
+const jwt = require("jsonwebtoken");
 const Problem = require("../models/problem.model");
 const { isValidObjectId } = require("../utils/validator");
 const {
@@ -6,6 +7,10 @@ const {
   getBatchResults,
   wait,
 } = require("../utils/problem.service");
+
+// Allowlist of safe fields exposed to public / non-admin viewers (Default Deny / Principle of Least Privilege)
+const PUBLIC_PROBLEM_FIELDS =
+  "title description difficulty tags visibleTestCases startCode problemCreator";
 
 // 1. Create a new problem (Admin only)
 const createProblem = async (req, res) => {
@@ -218,7 +223,7 @@ const updateProblem = async (req, res) => {
       problem: updatedProblem,
     });
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    res.status(400).json({ "here is the error": err.message });
   }
 };
 
@@ -267,9 +272,9 @@ const getAllProblems = async (req, res) => {
     // Total problems matching filter
     const totalProblems = await Problem.countDocuments(filter);
 
-    // Exclude hidden test cases and reference solution from public listing
+    // Field Allowlisting: Exclude hidden test cases and reference solution by default
     const problems = await Problem.find(filter)
-      .select("-hiddenTestCases -referenceSolution")
+      .select(PUBLIC_PROBLEM_FIELDS)
       .populate("problemCreator", "firstName lastName emailId")
       .skip(skip)
       .limit(limitNum);
@@ -288,7 +293,7 @@ const getAllProblems = async (req, res) => {
 };
 
 // 5. Get one problem by ID (Public / Normal User)
-// Hidden test cases and reference solutions are excluded unless accessed by an admin
+// Uses field allowlisting so secret fields (hidden test cases, reference solutions) are never leaked to non-admins
 const getProblemById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -297,15 +302,32 @@ const getProblemById = async (req, res) => {
       return res.status(400).json({ message: "Invalid problem ID format." });
     }
 
-    // Do not leak hidden test cases or reference solution to regular users
+    // Determine if requester is an admin (from middleware req.user or optional token check)
+    let isAdmin = req.user?.role === "admin";
+    if (!isAdmin && (req.cookies?.token || req.headers?.authorization)) {
+      try {
+        const token =
+          req.cookies?.token ||
+          req.headers?.authorization?.replace("Bearer ", "");
+        if (token) {
+          const decoded = jwt.verify(token, process.env.JWT_SECRET);
+          if (decoded?.role === "admin") {
+            isAdmin = true;
+          }
+        }
+      } catch (_) {
+        isAdmin = false;
+      }
+    }
+
     const query = Problem.findById(id).populate(
       "problemCreator",
       "firstName lastName emailId"
     );
 
-    // If an admin is requesting, include hidden cases and reference solution
-    if (!req.user || req.user.role !== "admin") {
-      query.select("-hiddenTestCases -referenceSolution");
+    // Field Allowlisting: Non-admins strictly receive only the allowlisted public fields
+    if (!isAdmin) {
+      query.select(PUBLIC_PROBLEM_FIELDS);
     }
 
     const problem = await query;

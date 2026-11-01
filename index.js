@@ -6,6 +6,7 @@ const connectDB = require("./config/db");
 const redisClient = require("./config/redis");
 const authRouter = require("./routes/auth");
 const problemRouter = require("./routes/problem");
+const submitCodeRouter = require("./routes/submitCode");
 
 const app = express();
 
@@ -16,6 +17,7 @@ app.use(cookieParser());
 // Routes
 app.use("/", authRouter);
 app.use("/problem", problemRouter);
+app.use("/submit", submitCodeRouter);
 
 // Health check route
 app.get("/health", (req, res) => {

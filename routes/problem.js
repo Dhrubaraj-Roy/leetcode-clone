@@ -7,8 +7,8 @@ const {
   deleteProblem,
   getAllProblems,
   getProblemById,
-  solveProblem,
 } = require("../controllers/problem.controller");
+const { submitCode } = require("../controllers/submission.controller");
 
 const userAuth = require("../middleware/userAuth");
 const adminAuth = require("../middleware/adminAuth");
@@ -37,6 +37,6 @@ problemRouter.get("/get/:id", getProblemById);
 problemRouter.get("/:id", getProblemById);
 
 // Solve / Submit problem (Requires User Login)
-problemRouter.post("/solve/:id", userAuth, solveProblem);
+problemRouter.post("/solve/:id", userAuth, submitCode);
 
 module.exports = problemRouter;

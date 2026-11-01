@@ -70,6 +70,15 @@ I am documenting my progress with dates and timestamps as I build each part of t
   8. Enforced verification: every reference solution test run must return Status 3 (`Accepted`). If any test case fails or produces an error, problem creation is rejected with detailed error feedback.
   9. Excluded `referenceSolution` and `hiddenTestCases` from public problem views to safeguard test suite integrity.
 
+### Milestone 6: Problem Pagination, ObjectId Validation & Submission Schema Architecture
+- Date: October 31, 2026
+- Time: 17:30 - 17:40 IST
+- What I completed:
+  1. Built a reusable `isValidObjectId` validator in `utils/validator.js` and plugged it into all ID-based endpoints (`updateProblem`, `deleteProblem`, `getProblemById`, `solveProblem`) to eliminate unhandled `CastError` exceptions and return clean 400 Bad Request responses.
+  2. Implemented pagination on `GET /problem/all` (`getAllProblems`) with query parameters `page` (default: 1) and `limit` (default: 10), returning pagination metadata (`page`, `limit`, `totalPages`, `totalProblems`, `count`, `problems`).
+  3. Added language support validation in `updateProblem` to ensure any modified `referenceSolution` adheres strictly to supported languages (C++ and Python).
+  4. Designed and created the `Submission` Mongoose model (`models/submission.model.js`) to capture user code submissions, status verdicts, runtime metrics (`time` in seconds, `memory` in KB), test case counters (`testCasesPassed`, `totalTestCases`), error messages, and compound indexes for fast history queries.
+
 ---
 
 ## What I Built So Far
@@ -142,8 +151,8 @@ Created helper functions to validate incoming request data before hitting the da
 - createProblem (Admin only): Validates required fields, compiles reference solutions and test cases into a batch submission for OnlineCompiler, polls every 1 second until compilation finishes, verifies Status 3 (`Accepted`) across all test cases, links the problem to the admin, and saves to MongoDB.
 - updateProblem (Admin only): Validates MongoDB ObjectId format, accepts partial updates via `PATCH` or `PUT`, ensures only allowed fields (including `referenceSolution`) are modified, and re-validates data.
 - deleteProblem (Admin only): Validates MongoDB ObjectId format, finds and deletes a problem by ID from MongoDB.
-- getAllProblems (Public): Returns a paginated list of all problems (default: 10 per page). Excludes `hiddenTestCases` and `referenceSolution` from public responses.
-- getProblemById (Public): Validates MongoDB ObjectId format and returns problem details by ID. Hides `hiddenTestCases` and `referenceSolution` unless requested by an admin.
+- getAllProblems (Public): Returns a paginated list of all problems (default: 10 per page) using field allowlisting for public safety.
+- getProblemById (Public): Validates MongoDB ObjectId format and uses field allowlisting (positive selection) so hidden test cases and reference solutions are strictly hidden from non-admin viewers.
 - solveProblem (Protected - User login required): Validates MongoDB ObjectId format, receives code and language from the user for execution.
 
 ### 8. Middlewares (middleware/)
@@ -186,6 +195,7 @@ This connects to MongoDB, finds the user by email, and sets their `role` to `"ad
 - Routers mounted:
   - Auth routes: `/` (`authRouter`)
   - Problem routes: `/problem` (`problemRouter`)
+  - Submission routes: `/submit` (`submitCodeRouter`)
 
 ---
 
@@ -198,6 +208,7 @@ leetcode-clone/
 │   └── redis.js
 ├── controllers/
 │   ├── problem.controller.js
+│   ├── submission.controller.js
 │   └── userAuth.js
 ├── middleware/
 │   ├── adminAuth.js
@@ -208,7 +219,8 @@ leetcode-clone/
 │   └── user.js
 ├── routes/
 │   ├── auth.js
-│   └── problem.js
+│   ├── problem.js
+│   └── submitCode.js
 ├── scripts/
 │   └── makeAdmin.js
 ├── utils/
@@ -305,14 +317,31 @@ JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
   Retrieves single problem details by ID (hidden test cases are hidden for users).
 
 #### Protected (Requires User Login)
-- POST /problem/solve/:id
-  Submits code solution for a problem.
+- POST /submit/:problemId (or `POST /problem/solve/:id`)
+  Submits user code for real-time evaluation. The submission is persisted in the database as "Pending" first, then evaluated against all visible and hidden test cases on OnlineCompiler.
   Protected by: `userAuth` middleware.
   Body:
   ```json
   {
     "language": "python",
-    "code": "import sys\n# solution code here\n"
+    "code": "import sys\n\ndef solve():\n    # your solution code\n    pass\n\nif __name__ == '__main__':\n    solve()"
+  }
+  ```
+  Response:
+  ```json
+  {
+    "message": "Code evaluated successfully",
+    "submission": {
+      "id": "672462e78f9...",
+      "problemId": "6723... ",
+      "status": "Accepted",
+      "time": "0.015s",
+      "memory": "1280 KB",
+      "testCasesPassed": 4,
+      "totalTestCases": 4,
+      "errorMessage": null,
+      "compileOutput": null
+    }
   }
   ```
 
