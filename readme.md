@@ -90,6 +90,7 @@ Created a Mongoose schema for users with the following fields:
 - emailId: String (required, unique, lowercase, trimmed)
 - password: String (required, stored as a bcrypt hash)
 - role: String (enum: `["user", "admin"]`, default: `"user"`)
+- problemsSolved: Array of ObjectIds (references to `Problem`, storing unique solved problems without duplicates)
 
 ### 2. Problem Schema (models/problem.model.js)
 Created a Mongoose schema for coding problems with the following fields:
@@ -317,6 +318,24 @@ JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
   Retrieves single problem details by ID (hidden test cases are hidden for users).
 
 #### Protected (Requires User Login)
+- GET /problem/solved
+  Retrieves all unique problems solved by the authenticated user, displaying problem ID, difficulty, title, and tags.
+  Protected by: `userAuth` middleware.
+  Response:
+  ```json
+  {
+    "count": 1,
+    "solvedProblems": [
+      {
+        "_id": "672461ab711b4650cab3ad31",
+        "title": "Two Sum",
+        "difficulty": "easy",
+        "tags": ["array", "hash-table"]
+      }
+    ]
+  }
+  ```
+
 - POST /submit/:problemId (or `POST /problem/solve/:id`)
   Submits user code for real-time evaluation. The submission is persisted in the database as "Pending" first, then evaluated against all visible and hidden test cases on OnlineCompiler.
   Protected by: `userAuth` middleware.

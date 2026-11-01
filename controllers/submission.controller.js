@@ -1,5 +1,6 @@
 const Problem = require("../models/problem.model");
 const Submission = require("../models/submission.model");
+const User = require("../models/user");
 const { isValidObjectId } = require("../utils/validator");
 const {
   getLanguageById,
@@ -179,6 +180,13 @@ const submitCode = async (req, res) => {
 
     await submission.save();
 
+    // If the submission is Accepted, store unique problem ID in user's problemsSolved
+    if (finalStatus === "Accepted") {
+      await User.findByIdAndUpdate(req.user._id, {
+        $addToSet: { problemsSolved: problem._id },
+      });
+    }
+
     // 10. Return evaluation response
     res.status(200).json({
       message: "Code evaluated successfully",
@@ -200,7 +208,48 @@ const submitCode = async (req, res) => {
   }
 };
 
+/**
+ * Retrieves all unique problems solved by the logged-in user.
+ * Displays problem ID, difficulty, title, and tags.
+ */
+const getSolvedProblems = async (req, res) => {
+  try {
+    let user = await User.findById(req.user._id).populate({
+      path: "problemsSolved",
+      select: "_id title difficulty tags",
+    });
+
+    // Auto-sync with Submission history in case of any prior Accepted submissions
+    const distinctProblemIds = await Submission.find({
+      userId: req.user._id,
+      status: "Accepted",
+    }).distinct("problemId");
+
+    if (
+      distinctProblemIds.length > 0 &&
+      (!user.problemsSolved || user.problemsSolved.length < distinctProblemIds.length)
+    ) {
+      user = await User.findByIdAndUpdate(
+        req.user._id,
+        { $addToSet: { problemsSolved: { $each: distinctProblemIds } } },
+        { new: true }
+      ).populate({
+        path: "problemsSolved",
+        select: "_id title difficulty tags",
+      });
+    }
+
+    res.status(200).json({
+      count: user.problemsSolved?.length || 0,
+      solvedProblems: user.problemsSolved || [],
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};
+
 module.exports = {
   submitCode,
+  getSolvedProblems,
 };
 

@@ -8,7 +8,10 @@ const {
   getAllProblems,
   getProblemById,
 } = require("../controllers/problem.controller");
-const { submitCode } = require("../controllers/submission.controller");
+const {
+  submitCode,
+  getSolvedProblems,
+} = require("../controllers/submission.controller");
 
 const userAuth = require("../middleware/userAuth");
 const adminAuth = require("../middleware/adminAuth");
@@ -31,6 +34,9 @@ problemRouter.delete("/delete/:id", userAuth, adminAuth, deleteProblem);
 problemRouter.get("/all", getAllProblems);
 problemRouter.get("/getAll", getAllProblems);
 problemRouter.get("/", getAllProblems);
+
+// Get all unique problems solved by the logged in user
+problemRouter.get("/solved", userAuth, getSolvedProblems);
 
 // Get a single problem by ID
 problemRouter.get("/get/:id", getProblemById);
