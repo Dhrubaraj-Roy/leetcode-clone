@@ -248,8 +248,150 @@ const getSolvedProblems = async (req, res) => {
   }
 };
 
+/**
+ * Controller to "Run Code" against visible example test cases only.
+ * 1. Does NOT save to database (no Submission or User records created/modified).
+ * 2. Runs solely against visibleTestCases.
+ * 3. Returns per-testcase input, expected output, and actual stdout so users can test before submitting.
+ */
+const runCode = async (req, res) => {
+  try {
+    const problemId = req.params.problemId || req.params.id || req.body.problemId;
+    const { language, code } = req.body;
+
+    // 1. Validate Problem ID
+    if (!problemId || !isValidObjectId(problemId)) {
+      return res.status(400).json({ message: "Invalid problem ID format." });
+    }
+
+    // 2. Validate Code & Language
+    if (!code || typeof code !== "string" || code.trim() === "") {
+      return res.status(400).json({ message: "Code is required and cannot be empty." });
+    }
+
+    if (!language) {
+      return res.status(400).json({ message: "Language is required." });
+    }
+
+    const languageId = getLanguageById(language);
+    if (!languageId) {
+      return res.status(400).json({
+        message: `Unsupported language: "${language}". Only C++ and Python are supported.`,
+      });
+    }
+
+    // 3. Find problem in MongoDB
+    const problem = await Problem.findById(problemId);
+    if (!problem) {
+      return res.status(404).json({ message: "Problem not found." });
+    }
+
+    // Run Code evaluates ONLY against visible (example) test cases
+    const testCases = problem.visibleTestCases;
+    if (!testCases || testCases.length === 0) {
+      return res.status(400).json({
+        message: "Problem has no visible test cases configured to run against.",
+      });
+    }
+
+    // 4. Construct batch submissions (NO DATABASE WRITE)
+    const submissions = testCases.map((tc) => ({
+      source_code: code,
+      language_id: languageId,
+      stdin: tc.input,
+      expected_output: tc.output,
+    }));
+
+    // 5. Submit batch to OnlineCompiler
+    let submitResult;
+    try {
+      submitResult = await submitBatch(submissions);
+    } catch (judgeErr) {
+      return res.status(502).json({
+        message: "Compiler service error while running code.",
+        error:
+          judgeErr.response?.data?.error ||
+          judgeErr.response?.data ||
+          judgeErr.message,
+      });
+    }
+
+    const tokens = submitResult.map((item) => item.token);
+
+    // 6. Poll until compilation and execution complete
+    let testResult = await getBatchResults(tokens);
+    let attempts = 0;
+    const maxAttempts = 15;
+
+    while (
+      testResult?.submissions?.some(
+        (s) => s.status.id === 1 || s.status.id === 2
+      ) &&
+      attempts < maxAttempts
+    ) {
+      attempts++;
+      await wait(1000);
+      testResult = await getBatchResults(tokens);
+    }
+
+    // 7. Analyze execution results across visible test cases
+    let testCasesPassed = 0;
+    let finalStatus = "Accepted";
+    let maxTime = 0;
+    let maxMemory = 0;
+    const testCaseResults = [];
+
+    for (let i = 0; i < testResult.submissions.length; i++) {
+      const sub = testResult.submissions[i];
+      const tc = testCases[i];
+      const statusId = sub.status.id;
+      const statusDesc = sub.status.description;
+
+      if (sub.time && parseFloat(sub.time) > maxTime) {
+        maxTime = parseFloat(sub.time);
+      }
+      if (sub.memory && parseInt(sub.memory, 10) > maxMemory) {
+        maxMemory = parseInt(sub.memory, 10);
+      }
+
+      const isPassed = statusId === 3;
+      if (isPassed) {
+        testCasesPassed++;
+      } else if (finalStatus === "Accepted") {
+        finalStatus = mapJudge0Status(statusId, statusDesc);
+      }
+
+      testCaseResults.push({
+        testCase: i + 1,
+        input: tc.input,
+        expectedOutput: tc.output,
+        actualOutput: sub.stdout || "",
+        status: statusDesc || "Wrong Answer",
+        passed: isPassed,
+        time: sub.time ? `${sub.time}s` : null,
+        memory: sub.memory ? `${sub.memory} KB` : null,
+        error: sub.stderr || sub.compile_output || sub.message || null,
+      });
+    }
+
+    // 8. Return response directly (NO DATABASE STORAGE)
+    res.status(200).json({
+      message: "Code run finished",
+      status: finalStatus,
+      testCasesPassed,
+      totalTestCases: testCases.length,
+      runtime: `${maxTime}s`,
+      memory: `${maxMemory} KB`,
+      results: testCaseResults,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
 module.exports = {
   submitCode,
+  runCode,
   getSolvedProblems,
 };
 

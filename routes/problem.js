@@ -10,6 +10,7 @@ const {
 } = require("../controllers/problem.controller");
 const {
   submitCode,
+  runCode,
   getSolvedProblems,
 } = require("../controllers/submission.controller");
 
@@ -41,6 +42,9 @@ problemRouter.get("/solved", userAuth, getSolvedProblems);
 // Get a single problem by ID
 problemRouter.get("/get/:id", getProblemById);
 problemRouter.get("/:id", getProblemById);
+
+// Run code against example test cases (Requires User Login - No DB storage)
+problemRouter.post("/run/:id", userAuth, runCode);
 
 // Solve / Submit problem (Requires User Login)
 problemRouter.post("/solve/:id", userAuth, submitCode);

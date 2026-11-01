@@ -336,6 +336,41 @@ JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
   }
   ```
 
+- POST /problem/run/:id
+  Runs code against visible/example test cases only. Does NOT store anything in the database (no submission or solve record created). Returns per-testcase input, expected output, and actual stdout so users can test before submitting.
+  Protected by: `userAuth` middleware.
+  Body:
+  ```json
+  {
+    "language": "python",
+    "code": "import sys\n# code here\n"
+  }
+  ```
+  Response:
+  ```json
+  {
+    "message": "Code run finished",
+    "status": "Accepted",
+    "testCasesPassed": 2,
+    "totalTestCases": 2,
+    "runtime": "0.012s",
+    "memory": "1120 KB",
+    "results": [
+      {
+        "testCase": 1,
+        "input": "4 9\n2 7 11 15",
+        "expectedOutput": "0 1\n",
+        "actualOutput": "0 1\n",
+        "status": "Accepted",
+        "passed": true,
+        "time": "0.012s",
+        "memory": "1120 KB",
+        "error": null
+      }
+    ]
+  }
+  ```
+
 - POST /submit/:problemId (or `POST /problem/solve/:id`)
   Submits user code for real-time evaluation. The submission is persisted in the database as "Pending" first, then evaluated against all visible and hidden test cases on OnlineCompiler.
   Protected by: `userAuth` middleware.
