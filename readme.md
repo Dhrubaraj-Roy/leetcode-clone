@@ -79,6 +79,38 @@ I am documenting my progress with dates and timestamps as I build each part of t
   3. Added language support validation in `updateProblem` to ensure any modified `referenceSolution` adheres strictly to supported languages (C++ and Python).
   4. Designed and created the `Submission` Mongoose model (`models/submission.model.js`) to capture user code submissions, status verdicts, runtime metrics (`time` in seconds, `memory` in KB), test case counters (`testCasesPassed`, `totalTestCases`), error messages, and compound indexes for fast history queries.
 
+### Milestone 7: Code Submission Engine & Field Allowlisting Security
+- Date: November 1, 2026
+- Time: 18:15 - 18:30 IST
+- Corresponding Commit: `7ac038d` (*implement submit code functionality*)
+- What I completed:
+  1. Created `controllers/submission.controller.js` and `routes/submitCode.js` (`POST /submit/:problemId`).
+  2. Designed the two-stage submission workflow: persists the initial submission into MongoDB with status `"Pending"` first to guarantee audit durability, then dispatches batch evaluation to OnlineCompiler.
+  3. Implemented a 1-second asynchronous polling loop to wait out Judge0 queuing and compilation states.
+  4. Mapped Judge0 status codes to the `Submission` model enum (`Accepted`, `Wrong Answer`, `Time Limit Exceeded`, `Runtime Error`, `Compilation Error`).
+  5. Refactored `getProblemById` and `getAllProblems` from field blocklisting (`-hiddenTestCases`) to **field allowlisting** (`PUBLIC_PROBLEM_FIELDS`) adhering to the Principle of Least Privilege / Default Deny.
+
+### Milestone 8: Unique Solved Problems Tracker (`problemsSolved`)
+- Date: November 1, 2026
+- Time: 18:35 - 18:41 IST
+- Corresponding Commit: `7fa89ac` (*implement a unique problem-solved page*)
+- What I completed:
+  1. Updated the `User` schema in `models/user.js` with `problemsSolved` referencing the `Problem` collection.
+  2. Integrated MongoDB's atomic `$addToSet` operator in `submitCode` so problem IDs are recorded only when a submission achieves the `"Accepted"` verdict, strictly avoiding duplicate entries.
+  3. Built the `getSolvedProblems` controller and exposed `GET /problem/solved` (protected by `userAuth`).
+  4. Configured population to return only necessary display fields (`_id`, `title`, `difficulty`, `tags`).
+  5. Implemented historical backwards-compatibility sync from the `Submission` collection.
+
+### Milestone 9: Run Code Engine (Zero-Persistence Execution)
+- Date: November 1, 2026
+- Time: 18:42 - 18:45 IST
+- Corresponding Commit: `748037d` (*Implement run code functionality*)
+- What I completed:
+  1. Created `runCode` in `controllers/submission.controller.js` and mounted `POST /problem/run/:id` in `routes/problem.js`.
+  2. Designed a lightweight, zero-database execution engine: evaluates code strictly in memory and compiler without creating records in `Submission` or modifying `problemsSolved`.
+  3. Restricted test execution to visible example test cases (`visibleTestCases`) only.
+  4. Formatted response to return detailed per-testcase results including input, expected output, user's actual output (`stdout`), runtime, and any compiler/runtime errors so users can test before official submission.
+
 ---
 
 ## What I Built So Far
@@ -156,7 +188,12 @@ Created helper functions to validate incoming request data before hitting the da
 - getProblemById (Public): Validates MongoDB ObjectId format and uses field allowlisting (positive selection) so hidden test cases and reference solutions are strictly hidden from non-admin viewers.
 - solveProblem (Protected - User login required): Validates MongoDB ObjectId format, receives code and language from the user for execution.
 
-### 8. Middlewares (middleware/)
+### 8. Submission & Execution Controllers (controllers/submission.controller.js)
+- submitCode: Handles code submissions. Saves the initial submission to MongoDB with status `"Pending"` first, executes the batch against all test cases on OnlineCompiler, polls results, records peak runtime and memory, and automatically adds the problem ID to the user's `problemsSolved` list using `$addToSet` upon `Accepted`.
+- runCode: Executes code against visible/example test cases only with zero database writes (does not save to `Submission` or modify `problemsSolved`). Returns detailed per-testcase input, expected output, and stdout for instant pre-submission feedback.
+- getSolvedProblems: Retrieves all unique problems solved by the authenticated user, returning `_id`, `title`, `difficulty`, and `tags`, with automatic sync from the `Submission` collection.
+
+### 9. Middlewares (middleware/)
 - `middleware/userAuth.js`:
   1. Reads the token from either the HTTP-only cookie or the `Authorization: Bearer <token>` header.
   2. Checks Redis to see if the token is blacklisted. If blacklisted, rejects the request immediately.
@@ -168,7 +205,7 @@ Created helper functions to validate incoming request data before hitting the da
   2. Verifies that `req.user.role === "admin"`.
   3. If not an admin, rejects with a `403 Forbidden` response.
 
-### 9. Why and How Redis Token Blacklisting Works
+### 10. Why and How Redis Token Blacklisting Works
 JWT tokens are stateless. When a user logs out, simply deleting the cookie from their browser doesn't invalidate the token itself. If someone had copied that token, they could still make requests until it expired.
 
 To solve this:
@@ -178,7 +215,7 @@ To solve this:
 - When any protected route is accessed, `userAuth` middleware checks Redis first. If the key exists, it returns `401 Unauthorized`.
 - Once the token expires naturally, Redis evicts it automatically, so memory usage stays low without any manual cleanup.
 
-### 10. Bootstrapping Admins (scripts/makeAdmin.js)
+### 11. Bootstrapping Admins (scripts/makeAdmin.js)
 Since creating an admin via the API requires you to already be logged in as an admin (`POST /admin/register`), there is a chicken-and-egg problem: how do you create the very first admin?
 
 To solve this, I made a CLI helper script:
@@ -189,7 +226,7 @@ node scripts/makeAdmin.js user@example.com
 ```
 This connects to MongoDB, finds the user by email, and sets their `role` to `"admin"`. Once you have your first admin, that admin can log in and register other admins through the API.
 
-### 11. Server Startup (index.js & config/)
+### 12. Server Startup (index.js & config/)
 - `config/db.js`: Connects to MongoDB using Mongoose.
 - `config/redis.js`: Creates and exports the Redis client.
 - `index.js`: Connects to both MongoDB and Redis before the Express server starts listening for requests.
