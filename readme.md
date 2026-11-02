@@ -7,6 +7,30 @@ TLDraw - https://www.tldraw.com/f/-1wZ1l0c492YWuhoW7-cT?d=v23.-15.1420.962.page
 
 ---
 
+## Tech Stack
+
+### Languages & Runtime
+![NodeJS](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
+![Express.js](https://img.shields.io/badge/Express.js-000000?style=for-the-badge&logo=express&logoColor=white)
+
+### Databases & Cache
+![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B?style=for-the-badge&logo=mongodb&logoColor=white)
+![Mongoose](https://img.shields.io/badge/Mongoose-880000?style=for-the-badge&logo=mongoose&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)
+
+### Authentication & Security
+![JWT](https://img.shields.io/badge/JWT-black?style=for-the-badge&logo=JSON%20web%20tokens)
+![Bcrypt](https://img.shields.io/badge/Bcrypt-5A5A5A?style=for-the-badge&logo=letsencrypt&logoColor=white)
+![Cookies](https://img.shields.io/badge/HTTP--Only%20Cookies-F89820?style=for-the-badge&logo=cookiecutter&logoColor=white)
+![Validator](https://img.shields.io/badge/Validator.js-CB3837?style=for-the-badge&logo=npm&logoColor=white)
+
+### Utilities & Tools
+![Dotenv](https://img.shields.io/badge/.ENV-ECD53F?style=for-the-badge&logo=dotenv&logoColor=black)
+![Axios](https://img.shields.io/badge/Axios-5A29E4?style=for-the-badge&logo=axios&logoColor=white)
+![Nodemon](https://img.shields.io/badge/Nodemon-76D04B?style=for-the-badge&logo=nodemon&logoColor=white)
+
+---
+
 ## Project Timeline and Progress Log
 
 I am documenting my progress with dates as I build each part of the system step by step.
