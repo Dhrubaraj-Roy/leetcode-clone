@@ -97,10 +97,19 @@ I am documenting my progress with dates as I build each part of the system step 
 - Date: November 1, 2026
 - Corresponding Commit: `748037d` (*Implement run code functionality*)
 - What I completed:
-  1. Created `runCode` in `controllers/submission.controller.js` and mounted `POST /problem/run/:id` in `routes/problem.js`.
+  1. Created `runCode` in `controllers/submission.controller.js` and mounted `POST /problem/run/:problemId` in `routes/problem.js`.
   2. Designed a lightweight, zero-database execution engine: evaluates code strictly in memory and compiler without creating records in `Submission` or modifying `problemsSolved`.
   3. Restricted test execution to visible example test cases (`visibleTestCases`) only.
   4. Formatted response to return detailed per-testcase results including input, expected output, user's actual output (`stdout`), runtime, and any compiler/runtime errors so users can test before official submission.
+
+### Milestone 10: Profile Deletion with Cascading Submissions Cleanup & Strict Parameter Separation
+- Date: November 2, 2026
+- What I completed:
+  1. Built the unified `deleteProfile` controller in `controllers/userAuth.js` and mounted `DELETE /profile` & `DELETE /profile/:userId` in `routes/auth.js`.
+  2. Implemented dual deletion workflows: user self-deletion (`req.user._id`) and admin-driven user deletion (`req.params.userId`), with strict ObjectId validation.
+  3. Integrated cascading cleanup using `Submission.deleteMany({ userId: targetUserId })` to permanently purge all code submissions tied to the deleted account.
+  4. Configured session invalidation for self-deletion: immediately blacklists the JWT in Redis for its remaining TTL and clears the HTTP-only cookie.
+  5. Enforced 100% strict parameter separation across controllers, eliminating unnecessary fallback chains (`|| req.params.id || req.body.problemId`) in `submitCode` and `runCode`.
 
 ---
 
@@ -170,6 +179,7 @@ Created helper functions to validate incoming request data before hitting the da
 - login: Finds user by email, verifies password with bcrypt, creates a signed JWT token containing user ID, email, and role (expires in 1 hour), and stores it in an HTTP-only cookie.
 - logout: Extracts the token, calculates how much time it has left before expiration, adds it to the Redis blacklist with that exact TTL, and clears the cookie.
 - adminRegister: An admin-only controller that registers another admin account with `role: "admin"` and hashed password.
+- deleteProfile: Deletes a user profile and cascades to delete all associated submissions. Regular users can delete their own profile; admins can delete any user account via optional `:userId`. Automatically blacklists the JWT token in Redis and clears cookies upon self-deletion.
 
 ### 7. Problem Controllers (controllers/problem.controller.js)
 - createProblem (Admin only): Validates required fields, compiles reference solutions and test cases into a batch submission for OnlineCompiler, polls every 1 second until compilation finishes, verifies Status 3 (`Accepted`) across all test cases, links the problem to the admin, and saves to MongoDB.
@@ -317,6 +327,22 @@ JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
 - POST /logout
   Logs the user out, blacklists the token in Redis for its remaining lifetime, and clears the auth cookie.
   Header: `Cookie: token=...` or `Authorization: Bearer <token>`
+
+- DELETE /profile (or `DELETE /profile/:userId` for admin)
+  Deletes the user profile and automatically cascades to delete all submissions belonging to that user. Regular users can delete their own account; admins can delete any user by appending `:userId`. Invalids the session token in Redis.
+  Header: `Cookie: token=...` or `Authorization: Bearer <token>`
+  Response:
+  ```json
+  {
+    "message": "Profile and all associated submissions deleted successfully.",
+    "deletedUser": {
+      "id": "6723b49c...",
+      "emailId": "user@example.com",
+      "firstName": "John"
+    },
+    "deletedSubmissionsCount": 5
+  }
+  ```
 
 #### Admin-Only
 - POST /admin/register

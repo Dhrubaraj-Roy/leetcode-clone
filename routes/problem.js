@@ -44,9 +44,9 @@ problemRouter.get("/get/:id", getProblemById);
 problemRouter.get("/:id", getProblemById);
 
 // Run code against example test cases (Requires User Login - No DB storage)
-problemRouter.post("/run/:id", userAuth, runCode);
+problemRouter.post("/run/:problemId", userAuth, runCode);
 
 // Solve / Submit problem (Requires User Login)
-problemRouter.post("/solve/:id", userAuth, submitCode);
+problemRouter.post("/solve/:problemId", userAuth, submitCode);
 
 module.exports = problemRouter;

@@ -1,6 +1,12 @@
 const express = require("express");
 const authRouter = express.Router();
-const { register, login, logout, adminRegister } = require("../controllers/userAuth");
+const {
+  register,
+  login,
+  logout,
+  adminRegister,
+  deleteProfile,
+} = require("../controllers/userAuth");
 const userAuth = require("../middleware/userAuth");
 const adminAuth = require("../middleware/adminAuth");
 
@@ -20,5 +26,12 @@ authRouter.post("/admin/register", userAuth, adminAuth, adminRegister);
 authRouter.get("/profile", userAuth, async (req, res) => {
   res.status(200).json({ user: req.user });
 });
+
+// Delete My Profile (User deletes their own account)
+authRouter.delete("/profile", userAuth, deleteProfile);
+
+// Admin Delete User Profile (Admin deletes any specified user by userId)
+authRouter.delete("/profile/:userId", userAuth, deleteProfile);
+authRouter.delete("/admin/user/:userId", userAuth, adminAuth, deleteProfile);
 
 module.exports = authRouter;

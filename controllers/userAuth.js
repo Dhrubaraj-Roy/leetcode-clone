@@ -1,8 +1,13 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const User = require("../models/user");
+const Submission = require("../models/submission.model");
 const redisClient = require("../config/redis");
-const { validateSignUpData, validateLoginData } = require("../utils/validator");
+const {
+  validateSignUpData,
+  validateLoginData,
+  isValidObjectId,
+} = require("../utils/validator");
 
 // Register / Signup Controller
 const register = async (req, res) => {
@@ -174,9 +179,75 @@ const adminRegister = async (req, res) => {
   }
 };
 
+// Delete Profile Controller (User can delete self, Admin can delete any user by :userId)
+const deleteProfile = async (req, res) => {
+  try {
+    // Only two needed: URL param for admin, or authenticated user ID for self-delete
+    const targetUserId = req.params.userId || req.user._id;
+
+    // Validate ID format
+    if (!isValidObjectId(targetUserId)) {
+      return res.status(400).json({ message: "Invalid user ID format." });
+    }
+
+    // Permission check: regular users can only delete their own profile
+    const isSelfDelete = targetUserId.toString() === req.user._id.toString();
+    if (!isSelfDelete && req.user.role !== "admin") {
+      return res.status(403).json({
+        message: "Access denied. Only an admin can delete another user's profile.",
+      });
+    }
+
+    // Check if target user exists in database
+    const user = await User.findById(targetUserId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    // 1. Delete all submissions made by this user
+    const submissionDeleteResult = await Submission.deleteMany({
+      userId: targetUserId,
+    });
+
+    // 2. Delete the user
+    await User.findByIdAndDelete(targetUserId);
+
+    // 3. If the user deleted their own account, blacklist token in Redis and clear cookie
+    if (isSelfDelete) {
+      const token = req.token || req.cookies?.token;
+      if (token) {
+        const decoded = jwt.decode(token);
+        if (decoded && decoded.exp) {
+          const currentTime = Math.floor(Date.now() / 1000);
+          const remainingTime = decoded.exp - currentTime;
+          if (remainingTime > 0) {
+            await redisClient.set(`token:${token}`, "blacklisted", {
+              EX: remainingTime,
+            });
+          }
+        }
+      }
+      res.clearCookie("token");
+    }
+
+    res.status(200).json({
+      message: "Profile and all associated submissions deleted successfully.",
+      deletedUser: {
+        id: user._id,
+        emailId: user.emailId,
+        firstName: user.firstName,
+      },
+      deletedSubmissionsCount: submissionDeleteResult.deletedCount,
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};
+
 module.exports = {
   register,
   login,
   logout,
   adminRegister,
+  deleteProfile,
 };

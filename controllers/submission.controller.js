@@ -38,7 +38,7 @@ const mapJudge0Status = (statusId, statusDesc) => {
  */
 const submitCode = async (req, res) => {
   try {
-    const problemId = req.params.problemId || req.params.id || req.body.problemId;
+    const { problemId } = req.params;
     const { language, code } = req.body;
 
     // 1. Validate Problem ID
@@ -256,7 +256,7 @@ const getSolvedProblems = async (req, res) => {
  */
 const runCode = async (req, res) => {
   try {
-    const problemId = req.params.problemId || req.params.id || req.body.problemId;
+    const { problemId } = req.params;
     const { language, code } = req.body;
 
     // 1. Validate Problem ID
