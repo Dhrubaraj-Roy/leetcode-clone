@@ -179,56 +179,40 @@ const adminRegister = async (req, res) => {
   }
 };
 
-// Delete Profile Controller (User can delete self, Admin can delete any user by :userId)
+// Delete Profile Controller (User deletes their own account)
 const deleteProfile = async (req, res) => {
   try {
-    // Only two needed: URL param for admin, or authenticated user ID for self-delete
-    const targetUserId = req.params.userId || req.user._id;
-
-    // Validate ID format
-    if (!isValidObjectId(targetUserId)) {
-      return res.status(400).json({ message: "Invalid user ID format." });
-    }
-
-    // Permission check: regular users can only delete their own profile
-    const isSelfDelete = targetUserId.toString() === req.user._id.toString();
-    if (!isSelfDelete && req.user.role !== "admin") {
-      return res.status(403).json({
-        message: "Access denied. Only an admin can delete another user's profile.",
-      });
-    }
+    const userId = req.user._id;
 
     // Check if target user exists in database
-    const user = await User.findById(targetUserId);
+    const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found." });
     }
 
     // 1. Delete all submissions made by this user
     const submissionDeleteResult = await Submission.deleteMany({
-      userId: targetUserId,
+      userId,
     });
 
     // 2. Delete the user
-    await User.findByIdAndDelete(targetUserId);
+    await User.findByIdAndDelete(userId);
 
-    // 3. If the user deleted their own account, blacklist token in Redis and clear cookie
-    if (isSelfDelete) {
-      const token = req.token || req.cookies?.token;
-      if (token) {
-        const decoded = jwt.decode(token);
-        if (decoded && decoded.exp) {
-          const currentTime = Math.floor(Date.now() / 1000);
-          const remainingTime = decoded.exp - currentTime;
-          if (remainingTime > 0) {
-            await redisClient.set(`token:${token}`, "blacklisted", {
-              EX: remainingTime,
-            });
-          }
+    // 3. Blacklist token in Redis and clear cookie
+    const token = req.token || req.cookies?.token;
+    if (token) {
+      const decoded = jwt.decode(token);
+      if (decoded && decoded.exp) {
+        const currentTime = Math.floor(Date.now() / 1000);
+        const remainingTime = decoded.exp - currentTime;
+        if (remainingTime > 0) {
+          await redisClient.set(`token:${token}`, "blacklisted", {
+            EX: remainingTime,
+          });
         }
       }
-      res.clearCookie("token");
     }
+    res.clearCookie("token");
 
     res.status(200).json({
       message: "Profile and all associated submissions deleted successfully.",

@@ -389,9 +389,52 @@ const runCode = async (req, res) => {
   }
 };
 
+/**
+ * Retrieves all submissions for a given problem submitted by the logged-in user.
+ * Leverages the compound index on { userId: 1, problemId: 1, createdAt: -1 }.
+ */
+const getUserProblemSubmissions = async (req, res) => {
+  try {
+    const { problemId } = req.params;
+    const userId = req.user._id;
+
+    // 1. Validate Problem ID
+    if (!isValidObjectId(problemId)) {
+      return res.status(400).json({ message: "Invalid problem ID format." });
+    }
+
+    // 2. Verify problem exists
+    const problem = await Problem.findById(problemId).select("_id title");
+    if (!problem) {
+      return res.status(404).json({ message: "Problem not found." });
+    }
+
+    // 3. Query submissions using compound index (userId + problemId + createdAt)
+    const submissions = await Submission.find({
+      userId,
+      problemId,
+    })
+      .sort({ createdAt: -1 })
+      .select(
+        "_id userId problemId language status time memory testCasesPassed totalTestCases errorMessage compileOutput code createdAt"
+      );
+
+    res.status(200).json({
+      message: "Submissions retrieved successfully",
+      problemId: problem._id,
+      problemTitle: problem.title,
+      count: submissions.length,
+      submissions,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
 module.exports = {
   submitCode,
   runCode,
   getSolvedProblems,
+  getUserProblemSubmissions,
 };
 

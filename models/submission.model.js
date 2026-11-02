@@ -70,7 +70,8 @@ const submissionSchema = new mongoose.Schema(
   }
 );
 
-// Indexes for fast querying of user submission history
+// Compound index for fast lookup of submissions by user and problem sorted by latest first
+submissionSchema.index({ userId: 1, problemId: 1, createdAt: -1 });
 submissionSchema.index({ userId: 1, problemId: 1 });
 submissionSchema.index({ createdAt: -1 });
 

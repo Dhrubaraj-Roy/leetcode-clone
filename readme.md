@@ -102,14 +102,22 @@ I am documenting my progress with dates as I build each part of the system step 
   3. Restricted test execution to visible example test cases (`visibleTestCases`) only.
   4. Formatted response to return detailed per-testcase results including input, expected output, user's actual output (`stdout`), runtime, and any compiler/runtime errors so users can test before official submission.
 
-### Milestone 10: Profile Deletion with Cascading Submissions Cleanup & Strict Parameter Separation
+### Milestone 10: Profile Deletion with Cascading Submissions Cleanup
 - Date: November 2, 2026
 - What I completed:
-  1. Built the unified `deleteProfile` controller in `controllers/userAuth.js` and mounted `DELETE /profile` & `DELETE /profile/:userId` in `routes/auth.js`.
-  2. Implemented dual deletion workflows: user self-deletion (`req.user._id`) and admin-driven user deletion (`req.params.userId`), with strict ObjectId validation.
-  3. Integrated cascading cleanup using `Submission.deleteMany({ userId: targetUserId })` to permanently purge all code submissions tied to the deleted account.
-  4. Configured session invalidation for self-deletion: immediately blacklists the JWT in Redis for its remaining TTL and clears the HTTP-only cookie.
+  1. Built the `deleteProfile` controller in `controllers/userAuth.js` and mounted `DELETE /profile` in `routes/auth.js`.
+  2. Implemented profile deletion directly using the authenticated user ID (`req.user._id`).
+  3. Integrated cascading cleanup using `Submission.deleteMany({ userId: req.user._id })` to permanently purge all code submissions tied to the deleted account.
+  4. Configured session invalidation: immediately blacklists the JWT in Redis for its remaining TTL and clears the HTTP-only cookie.
   5. Enforced 100% strict parameter separation across controllers, eliminating unnecessary fallback chains (`|| req.params.id || req.body.problemId`) in `submitCode` and `runCode`.
+
+### Milestone 11: Problem Submissions Retrieval with Compound Index Optimization
+- Date: November 2, 2026
+- What I completed:
+  1. Created compound indexes `{ userId: 1, problemId: 1, createdAt: -1 }` and `{ userId: 1, problemId: 1 }` on `models/submission.model.js` for fast filtered and sorted queries.
+  2. Implemented `getUserProblemSubmissions` in `controllers/submission.controller.js` to retrieve all historical submissions for a problem by the logged-in user (`req.user._id` and `req.params.problemId`).
+  3. Enforced strict parameter separation with `const { problemId } = req.params;` alongside ObjectId validation.
+  4. Mounted `GET /submit/:problemId` in `routes/submitCode.js`.
 
 ---
 
@@ -158,7 +166,7 @@ Created a Mongoose schema for code evaluation submissions with the following fie
 - totalTestCases: Number (default: 0)
 - errorMessage: String (details of runtime or execution error, optional)
 - compileOutput: String (compiler error logs or warnings, optional)
-- Timestamps and compound indexes for fast query lookup (`userId + problemId`, `createdAt`).
+- Compound indexes (`{ userId: 1, problemId: 1, createdAt: -1 }`, `{ userId: 1, problemId: 1 }`, and `{ createdAt: -1 }`) for fast sorted lookup of user submissions per problem.
 
 ### 4. Problem Service & OnlineCompiler Judge0 API (utils/problem.service.js)
 Created utility functions to interface with the code execution engine via Axios:
@@ -179,7 +187,7 @@ Created helper functions to validate incoming request data before hitting the da
 - login: Finds user by email, verifies password with bcrypt, creates a signed JWT token containing user ID, email, and role (expires in 1 hour), and stores it in an HTTP-only cookie.
 - logout: Extracts the token, calculates how much time it has left before expiration, adds it to the Redis blacklist with that exact TTL, and clears the cookie.
 - adminRegister: An admin-only controller that registers another admin account with `role: "admin"` and hashed password.
-- deleteProfile: Deletes a user profile and cascades to delete all associated submissions. Regular users can delete their own profile; admins can delete any user account via optional `:userId`. Automatically blacklists the JWT token in Redis and clears cookies upon self-deletion.
+- deleteProfile: Deletes the authenticated user's profile and cascades to delete all associated submissions. Automatically blacklists the JWT token in Redis and clears cookies upon deletion.
 
 ### 7. Problem Controllers (controllers/problem.controller.js)
 - createProblem (Admin only): Validates required fields, compiles reference solutions and test cases into a batch submission for OnlineCompiler, polls every 1 second until compilation finishes, verifies Status 3 (`Accepted`) across all test cases, links the problem to the admin, and saves to MongoDB.
@@ -193,6 +201,7 @@ Created helper functions to validate incoming request data before hitting the da
 - submitCode: Handles code submissions. Saves the initial submission to MongoDB with status `"Pending"` first, executes the batch against all test cases on OnlineCompiler, polls results, records peak runtime and memory, and automatically adds the problem ID to the user's `problemsSolved` list using `$addToSet` upon `Accepted`.
 - runCode: Executes code against visible/example test cases only with zero database writes (does not save to `Submission` or modify `problemsSolved`). Returns detailed per-testcase input, expected output, and stdout for instant pre-submission feedback.
 - getSolvedProblems: Retrieves all unique problems solved by the authenticated user, returning `_id`, `title`, `difficulty`, and `tags`, with automatic sync from the `Submission` collection.
+- getUserProblemSubmissions: Retrieves all historical submissions for a specific problem submitted by the logged-in user, backed by the `{ userId: 1, problemId: 1, createdAt: -1 }` compound index for fast retrieval.
 
 ### 9. Middlewares (middleware/)
 - `middleware/userAuth.js`:
@@ -328,8 +337,8 @@ JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
   Logs the user out, blacklists the token in Redis for its remaining lifetime, and clears the auth cookie.
   Header: `Cookie: token=...` or `Authorization: Bearer <token>`
 
-- DELETE /profile (or `DELETE /profile/:userId` for admin)
-  Deletes the user profile and automatically cascades to delete all submissions belonging to that user. Regular users can delete their own account; admins can delete any user by appending `:userId`. Invalids the session token in Redis.
+- DELETE /profile
+  Deletes the authenticated user's profile and automatically cascades to delete all submissions belonging to that user. Invalidates the session token in Redis and clears cookies.
   Header: `Cookie: token=...` or `Authorization: Bearer <token>`
   Response:
   ```json
@@ -390,7 +399,36 @@ JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
   }
   ```
 
-- POST /problem/run/:id
+- GET /submit/:problemId
+  Retrieves all historical submissions for a specific problem submitted by the logged-in user. Backed by a `{ userId: 1, problemId: 1, createdAt: -1 }` compound index for fast retrieval.
+  Protected by: `userAuth` middleware.
+  Response:
+  ```json
+  {
+    "message": "Submissions retrieved successfully",
+    "problemId": "672461ab711b4650cab3ad31",
+    "problemTitle": "Two Sum",
+    "userId": "6723b49c...",
+    "count": 2,
+    "submissions": [
+      {
+        "_id": "672462e78f9...",
+        "userId": "6723b49c...",
+        "problemId": "672461ab711b4650cab3ad31",
+        "language": "python",
+        "status": "Accepted",
+        "time": 0.015,
+        "memory": 1280,
+        "testCasesPassed": 4,
+        "totalTestCases": 4,
+        "code": "import sys\n...",
+        "createdAt": "2026-11-02T14:22:00.000Z"
+      }
+    ]
+  }
+  ```
+
+- POST /problem/run/:problemId
   Runs code against visible/example test cases only. Does NOT store anything in the database (no submission or solve record created). Returns per-testcase input, expected output, and actual stdout so users can test before submitting.
   Protected by: `userAuth` middleware.
   Body:
@@ -425,7 +463,7 @@ JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
   }
   ```
 
-- POST /submit/:problemId (or `POST /problem/solve/:id`)
+- POST /submit/:problemId (or `POST /problem/solve/:problemId`)
   Submits user code for real-time evaluation. The submission is persisted in the database as "Pending" first, then evaluated against all visible and hidden test cases on OnlineCompiler.
   Protected by: `userAuth` middleware.
   Body:
