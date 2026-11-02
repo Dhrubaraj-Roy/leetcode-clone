@@ -9,11 +9,10 @@ TLDraw - https://www.tldraw.com/f/-1wZ1l0c492YWuhoW7-cT?d=v23.-15.1420.962.page
 
 ## Project Timeline and Progress Log
 
-I am documenting my progress with dates and timestamps as I build each part of the system step by step.
+I am documenting my progress with dates as I build each part of the system step by step.
 
 ### Milestone 1: Project Setup and Authentication Backend
 - Date: October 29, 2026
-- Time: 20:45 - 21:15 IST
 - What I completed:
   1. Initialized the project and planned the architecture on TLDraw.
   2. Created the User schema in Mongoose with firstName, lastName, emailId, and password.
@@ -24,7 +23,6 @@ I am documenting my progress with dates and timestamps as I build each part of t
 
 ### Milestone 2: Auth Middleware & Redis Token Blacklisting
 - Date: October 30, 2026
-- Time: 11:30 - 12:15 IST
 - What I completed:
   1. Created a reusable `userAuth` middleware to protect private routes.
   2. Integrated Redis to handle JWT token blacklisting when a user logs out.
@@ -36,7 +34,6 @@ I am documenting my progress with dates and timestamps as I build each part of t
 
 ### Milestone 3: Role-Based Access Control (User & Admin Roles)
 - Date: October 30, 2026
-- Time: 12:20 - 12:35 IST
 - What I completed:
   1. Added a `role` field to the User schema (`user` or `admin`, defaulting to `user`).
   2. Enforced that public signups (`POST /register`) can only create accounts with the `user` role to prevent unauthorized privilege escalation.
@@ -47,7 +44,6 @@ I am documenting my progress with dates and timestamps as I build each part of t
 
 ### Milestone 4: Problem Management API (CRUD Coding Problems)
 - Date: October 30, 2026
-- Time: 12:45 - 13:15 IST
 - What I completed:
   1. Created the `Problem` schema in Mongoose with title, description, difficulty level, tags, visible test cases, hidden test cases, starter code per language, and reference to the problem creator.
   2. Built admin controllers to create, update, and delete coding problems.
@@ -58,7 +54,6 @@ I am documenting my progress with dates and timestamps as I build each part of t
 
 ### Milestone 5: OnlineCompiler (Judge0-Compatible API) Integration & Problem Verification
 - Date: October 31, 2026
-- Time: 10:00 - 13:00 IST
 - What I completed:
   1. Added `referenceSolution` to the `Problem` schema with `language` and `completeCode`.
   2. Integrated OnlineCompiler.io as a Judge0-compatible execution provider via Axios (`POST /submissions/batch` and `GET /submissions/batch?tokens=...`).
@@ -72,7 +67,6 @@ I am documenting my progress with dates and timestamps as I build each part of t
 
 ### Milestone 6: Problem Pagination, ObjectId Validation & Submission Schema Architecture
 - Date: October 31, 2026
-- Time: 17:30 - 17:40 IST
 - What I completed:
   1. Built a reusable `isValidObjectId` validator in `utils/validator.js` and plugged it into all ID-based endpoints (`updateProblem`, `deleteProblem`, `getProblemById`, `solveProblem`) to eliminate unhandled `CastError` exceptions and return clean 400 Bad Request responses.
   2. Implemented pagination on `GET /problem/all` (`getAllProblems`) with query parameters `page` (default: 1) and `limit` (default: 10), returning pagination metadata (`page`, `limit`, `totalPages`, `totalProblems`, `count`, `problems`).
@@ -81,7 +75,6 @@ I am documenting my progress with dates and timestamps as I build each part of t
 
 ### Milestone 7: Code Submission Engine & Field Allowlisting Security
 - Date: November 1, 2026
-- Time: 18:15 - 18:30 IST
 - Corresponding Commit: `7ac038d` (*implement submit code functionality*)
 - What I completed:
   1. Created `controllers/submission.controller.js` and `routes/submitCode.js` (`POST /submit/:problemId`).
@@ -92,7 +85,6 @@ I am documenting my progress with dates and timestamps as I build each part of t
 
 ### Milestone 8: Unique Solved Problems Tracker (`problemsSolved`)
 - Date: November 1, 2026
-- Time: 18:35 - 18:41 IST
 - Corresponding Commit: `7fa89ac` (*implement a unique problem-solved page*)
 - What I completed:
   1. Updated the `User` schema in `models/user.js` with `problemsSolved` referencing the `Problem` collection.
@@ -103,7 +95,6 @@ I am documenting my progress with dates and timestamps as I build each part of t
 
 ### Milestone 9: Run Code Engine (Zero-Persistence Execution)
 - Date: November 1, 2026
-- Time: 18:42 - 18:45 IST
 - Corresponding Commit: `748037d` (*Implement run code functionality*)
 - What I completed:
   1. Created `runCode` in `controllers/submission.controller.js` and mounted `POST /problem/run/:id` in `routes/problem.js`.
