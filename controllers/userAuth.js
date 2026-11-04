@@ -38,6 +38,18 @@ const register = async (req, res) => {
 
     await newUser.save();
 
+    // 5. Create JWT token and set HTTP-only cookie so the user is logged in automatically
+    const token = jwt.sign(
+      { _id: newUser._id, emailId: newUser.emailId, role: newUser.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    res.cookie("token", token, {
+      httpOnly: true,
+      maxAge: 60 * 60 * 1000, // 1 hour
+    });
+
     res.status(201).json({
       message: "User registered successfully",
       user: {
@@ -228,10 +240,63 @@ const deleteProfile = async (req, res) => {
   }
 };
 
+// Check Auth Controller (gracefully checks auth status without throwing 401 in browser console)
+const checkAuth = async (req, res) => {
+  try {
+    const token = req.cookies.token || req.headers.authorization?.replace("Bearer ", "");
+
+    if (!token) {
+      return res.status(200).json({
+        authenticated: false,
+        user: null,
+      });
+    }
+
+    // Check if token is blacklisted in Redis
+    const isBlacklisted = await redisClient.get(`token:${token}`);
+    if (isBlacklisted) {
+      return res.status(200).json({
+        authenticated: false,
+        user: null,
+      });
+    }
+
+    // Verify JWT token
+    const decodedObj = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Find user in database
+    const user = await User.findById(decodedObj._id);
+    if (!user) {
+      return res.status(200).json({
+        authenticated: false,
+        user: null,
+      });
+    }
+
+    res.status(200).json({
+      authenticated: true,
+      user: {
+        id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        emailId: user.emailId,
+        role: user.role,
+      },
+    });
+  } catch (err) {
+    // If token is expired or invalid, return unauthenticated state cleanly
+    return res.status(200).json({
+      authenticated: false,
+      user: null,
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
   logout,
   adminRegister,
   deleteProfile,
+  checkAuth,
 };

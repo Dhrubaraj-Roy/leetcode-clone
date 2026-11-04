@@ -6,9 +6,13 @@ const {
   logout,
   adminRegister,
   deleteProfile,
+  checkAuth,
 } = require("../controllers/userAuth");
 const userAuth = require("../middleware/userAuth");
 const adminAuth = require("../middleware/adminAuth");
+
+// Check Auth (gracefully returns auth status: true/false without throwing 401)
+authRouter.get("/check", checkAuth);
 
 // Register (role is always user)
 authRouter.post("/register", register);

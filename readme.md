@@ -143,6 +143,14 @@ I am documenting my progress with dates as I build each part of the system step 
   3. Enforced strict parameter separation with `const { problemId } = req.params;` alongside ObjectId validation.
   4. Mounted `GET /submit/:problemId` in `routes/submitCode.js`.
 
+### Milestone 12: Authentication Status Endpoint (`/check`), Auto-Session on Signup & CORS Configuration
+- Date: November 4, 2026
+- What I completed:
+  1. Installed and configured `cors` middleware in `index.js` with `credentials: true` and `origin: process.env.CLIENT_URL || "http://localhost:5173"` to permit secure cross-origin requests and HTTP-only cookie exchange with the React frontend.
+  2. Implemented the `checkAuth` controller in `controllers/userAuth.js` and mounted `GET /check` in `routes/auth.js`.
+  3. Designed `checkAuth` to verify existing sessions gracefully without throwing 401 exceptions in the client console: returns `{ authenticated: true, user }` if the session is valid, and `{ authenticated: false, user: null }` if no token or an expired/blacklisted token is provided.
+  4. Updated `register` in `controllers/userAuth.js` to automatically create a signed JWT and set the HTTP-only `token` cookie upon successful account registration, seamlessly authenticating newly registered users without requiring a secondary manual login step.
+
 ---
 
 ## What I Built So Far
@@ -207,8 +215,9 @@ Created helper functions to validate incoming request data before hitting the da
 - validateLoginData: Checks that email format is valid and password is provided.
 
 ### 6. Authentication Controllers (controllers/userAuth.js)
-- register: Validates input data, checks if the email already exists, hashes the password using bcrypt (10 rounds), strictly assigns `role: "user"`, and saves the new user to MongoDB.
+- register: Validates input data, checks if the email already exists, hashes the password using bcrypt (10 rounds), strictly assigns `role: "user"`, creates an active JWT session stored in an HTTP-only cookie, and saves the new user to MongoDB.
 - login: Finds user by email, verifies password with bcrypt, creates a signed JWT token containing user ID, email, and role (expires in 1 hour), and stores it in an HTTP-only cookie.
+- checkAuth: Inspects the incoming JWT cookie/header and validates it against the Redis blacklist. If valid, returns `{ authenticated: true, user }`; if absent, expired, or blacklisted, returns `{ authenticated: false, user: null }` without triggering client-side network error logs.
 - logout: Extracts the token, calculates how much time it has left before expiration, adds it to the Redis blacklist with that exact TTL, and clears the cookie.
 - adminRegister: An admin-only controller that registers another admin account with `role: "admin"` and hashed password.
 - deleteProfile: Deletes the authenticated user's profile and cascades to delete all associated submissions. Automatically blacklists the JWT token in Redis and clears cookies upon deletion.
@@ -321,6 +330,7 @@ REDIS_PORT=6379
 REDIS_PASS=your_redis_password
 ONLINECOMPILER_API_KEY=your_onlinecompiler_api_key
 JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
+CLIENT_URL=http://localhost:5173
 ```
 
 ---
@@ -353,6 +363,30 @@ JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
   ```
 
 #### Protected (Requires User Login)
+- GET /check
+  Verifies whether the client has an active, valid session without throwing 401 console errors.
+  Header: `Cookie: token=...` or `Authorization: Bearer <token>`
+  Response (Logged In):
+  ```json
+  {
+    "authenticated": true,
+    "user": {
+      "id": "672461ab...",
+      "firstName": "John",
+      "lastName": "Doe",
+      "emailId": "john@example.com",
+      "role": "user"
+    }
+  }
+  ```
+  Response (Logged Out / Expired):
+  ```json
+  {
+    "authenticated": false,
+    "user": null
+  }
+  ```
+
 - GET /profile
   Fetches the logged-in user profile (including `role`).
   Header: `Cookie: token=...` or `Authorization: Bearer <token>`
