@@ -29,6 +29,10 @@ TLDraw - https://www.tldraw.com/f/-1wZ1l0c492YWuhoW7-cT?d=v23.-15.1420.962.page
 ![Axios](https://img.shields.io/badge/Axios-5A29E4?style=for-the-badge&logo=axios&logoColor=white)
 ![Nodemon](https://img.shields.io/badge/Nodemon-76D04B?style=for-the-badge&logo=nodemon&logoColor=white)
 
+### AI & LLM Engine
+![Groq](https://img.shields.io/badge/Groq_API-F05A28?style=for-the-badge&logo=fastapi&logoColor=white)
+![Qwen](https://img.shields.io/badge/Qwen_2.5-611f69?style=for-the-badge&logo=openai&logoColor=white)
+
 ---
 
 ## Project Timeline and Progress Log
@@ -150,6 +154,19 @@ I am documenting my progress with dates as I build each part of the system step 
   2. Implemented the `checkAuth` controller in `controllers/userAuth.js` and mounted `GET /check` in `routes/auth.js`.
   3. Designed `checkAuth` to verify existing sessions gracefully without throwing 401 exceptions in the client console: returns `{ authenticated: true, user }` if the session is valid, and `{ authenticated: false, user: null }` if no token or an expired/blacklisted token is provided.
   4. Updated `register` in `controllers/userAuth.js` to automatically create a signed JWT and set the HTTP-only `token` cookie upon successful account registration, seamlessly authenticating newly registered users without requiring a secondary manual login step.
+
+### Milestone 13: AI DSA Teacher Engine (`/chat`), Dynamic Context Injection & Strict Authentication
+- Date: November 12, 2026
+- What I completed:
+  1. Built the AI chat router (`routes/chat.js`) and controller (`controllers/chat.controller.js`), mounting `app.use("/chat", chatRouter)` in `index.js`.
+  2. Enforced strict authentication: secured `POST /chat` with `userAuth` middleware, rejecting any unauthenticated or invalid session with `401 Unauthorized`. Only authenticated users in the database can access the AI chatbot.
+  3. Integrated Groq API (`AI_CHAT_BOT` key) with `qwen/qwen3.8-27b` and `openai/gpt-oss-120b` fallback models.
+  4. Built dynamic system prompt generation (`buildSystemPrompt`):
+     - Injects active problem context (`problemTitle`, `problemDescription`).
+     - Injects student's live editor code (`currentCode`, `language`).
+     - Personalizes prompts by addressing students by their registered name (`user.firstName`).
+     - Enforces the **Rude DSA Teacher** persona: sarcastic, demanding, and blunt, roasting suboptimal $O(N^2)$ approaches and trivial questions while delivering 100% accurate Big-O analysis and algorithmic guidance.
+  5. Maintained conversational history tracking (last 6 exchanges) for context retention across turns.
 
 ---
 
@@ -277,6 +294,18 @@ This connects to MongoDB, finds the user by email, and sets their `role` to `"ad
   - Auth routes: `/` (`authRouter`)
   - Problem routes: `/problem` (`problemRouter`)
   - Submission routes: `/submit` (`submitCodeRouter`)
+  - AI Chat routes: `/chat` (`chatRouter`)
+
+### 13. AI DSA Teacher Engine (controllers/chat.controller.js & routes/chat.js)
+AI-powered tutoring service delivering algorithmic critiques, problem hints, and solution breakdowns:
+- **`buildSystemPrompt`**: Dynamically constructs system instructions incorporating:
+  - Student profile (`user.firstName`).
+  - Active problem title and description.
+  - Student's current Monaco Editor code and programming language.
+  - Strict pedagogical rules enforcing the Rude DSA Teacher persona.
+- **Groq API Integration**: Queries high-performance open-weights LLMs (`qwen/qwen3.8-27b`, `openai/gpt-oss-120b`, `openai/gpt-oss-20b`) using the `AI_CHAT_BOT` environment variable.
+- **Context Window Protection**: Automatically bounds problem descriptions and code snippets to 5,000 characters to prevent token overflows.
+- **Protected Route**: Secured with `userAuth` middleware to ensure only authenticated users can use API quota.
 
 ---
 
@@ -288,6 +317,7 @@ leetcode-clone/
 │   ├── db.js
 │   └── redis.js
 ├── controllers/
+│   ├── chat.controller.js
 │   ├── problem.controller.js
 │   ├── submission.controller.js
 │   └── userAuth.js
@@ -300,6 +330,7 @@ leetcode-clone/
 │   └── user.js
 ├── routes/
 │   ├── auth.js
+│   ├── chat.js
 │   ├── problem.js
 │   └── submitCode.js
 ├── scripts/
@@ -331,6 +362,7 @@ REDIS_PASS=your_redis_password
 ONLINECOMPILER_API_KEY=your_onlinecompiler_api_key
 JUDGE0_URL=https://api.onlinecompiler.io/api/judge0
 CLIENT_URL=http://localhost:5173
+AI_CHAT_BOT=your_groq_api_key
 ```
 
 ---
@@ -546,6 +578,38 @@ CLIENT_URL=http://localhost:5173
       "errorMessage": null,
       "compileOutput": null
     }
+  }
+  ```
+
+- POST /chat
+  Communicates with the Rude DSA Teacher AI chatbot. Enforces user authentication and injects active problem context (title, description) and student's Monaco editor code dynamically into the system prompt.
+  Protected by: `userAuth` middleware.
+  Body:
+  ```json
+  {
+    "message": "Why is my code failing on [2,4,3] and [5,6,4]?",
+    "history": [
+      {
+        "role": "user",
+        "content": "Can you check my code?"
+      },
+      {
+        "role": "assistant",
+        "content": "Your code is returning a scalar instead of a linked list!"
+      }
+    ],
+    "problemId": "672461ab711b4650cab3ad31",
+    "problemTitle": "2. Add Two Numbers",
+    "problemDescription": "You are given two non-empty linked lists...",
+    "currentCode": "def addTwoNumbers(l1, l2):\n    return l1.val + l2.val",
+    "language": "python"
+  }
+  ```
+  Response:
+  ```json
+  {
+    "status": "success",
+    "reply": "Are you serious right now, Dhrubaraj? You're returning an integer instead of a linked list..."
   }
   ```
 
